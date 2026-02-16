@@ -1,6 +1,7 @@
 #pragma once
 
-static const char* HELP_TEXT = R"(Usage: ./LIS [OPTIONS]
+static const char* HELP_TEXT = R"(Usage: ./MotionDynamic_4TO OPTIONS (Linux)
+	Or MotionDynamic_4TO.exe OPTIONS (Windows)
 
 Segement tracks from ArUco signals.
 
@@ -18,9 +19,13 @@ Options:
   --cal_pheno         This tells the program to calculate phenotype (unfinished)
 
 
-Example:
+Linux Example:
   ./MotionDynamic_4TO --track -i coord_paper4.csv
   ./MotionDynamic_4TO --track -i coord_paper4.csv -o ./exp1 --window 250  --min_len 1000
+ 
+Windows Example:
+  MotionDynamic_4TO.exe --track -i coord_paper4.csv
+  MotionDynamic_4TO.exe --track -i coord_paper4.csv -o ./exp1 --window 250  --min_len 1000
 
 Report bugs to: zhuoshi.wang@wur.nl
 )";
