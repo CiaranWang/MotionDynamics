@@ -215,10 +215,18 @@ int get_tracks(const fs::path& input,
             std::cout << "  -> wrote " << per_id_tracks_csv.filename()
                 << " and appended to " << global_summary_csv.filename()
                 << " (" << tracks.size() << " tracks)\n";
-        }
 
+            // DELETE processed file
+            std::error_code del_ec;
+            if (fs::remove(file, del_ec)) {
+                std::cout << "  -> deleted source file: " << file.filename() << "\n";
+            }
+            else if (del_ec) {
+                std::cerr << "!!! Failed to delete " << file
+                    << " : " << del_ec.message() << "\n";
+            }
+        }
     }
 
     return number_tracks;
-
 }
