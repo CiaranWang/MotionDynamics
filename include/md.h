@@ -3,8 +3,7 @@
 
 #include <string>
 #include <vector>
-
-#define MD_VERSION "TO.2.6"
+#include <filesystem>  // C++17
 
 constexpr double kPI = 3.14159265358979323846;
 
@@ -19,17 +18,6 @@ struct Detection {
     double dir_x;
     double dir_y;
     double angle;
-
-    double ahead_density; // density in front
-    double back_density;  // density behind
-    double local_density; // density at current position
-
-    double speed;
-    double acceleration;
-    double angle_change;
-    double distance_from_last;
-
-    bool interpolated = false;
 };
 
 // ----------------------
@@ -45,13 +33,14 @@ struct Segment {
 struct TrackSummary {
     int ID;
     int segment_index;
+    std::string unique_index;
     long first_frame;
     long last_frame;
-    int n_obs;
-    double total_distance;
-    double mean_speed;
+    long frame_number;
+    long n_obs;
     long max_gap;
-    double mean_angle_change;
+
+    double total_distance;
     double max_jump;
 };
 
@@ -61,6 +50,11 @@ struct TrackSummary {
 int motion_dynamics_run(const std::string& input,
     const std::string& output_prefix,
     long frame_window,
-    bool smooth = false); // optional smoothing
+    bool smooth = false);
+
+int get_tracks(const std::filesystem::path& input,
+    const std::filesystem::path& output_dir,
+    long frame_window,
+    long min_len);
 
 #endif
