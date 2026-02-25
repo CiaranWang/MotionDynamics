@@ -18,7 +18,7 @@
 namespace fs = std::filesystem;
 using namespace std;
 
-static const std::string PROGRAM_VERSION = "T1.0.3";
+static const std::string PROGRAM_VERSION = "T1.0.4";
 
 static void print_version() {
     std::cout << "MotionDynamics Version: " << PROGRAM_VERSION << std::endl;
@@ -233,7 +233,9 @@ int main(int argc, char* argv[])
             }
         }
 
-        return get_tracks(input_file, output_dir, frame_window, min_len);
+        int n_tracks = get_tracks(input_file, output_dir, frame_window, min_len);
     }
+
+    return 0;
  
 }
