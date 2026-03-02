@@ -204,7 +204,7 @@ std::vector<Detection> ReadInput_Tzayhri(const fs::path& input_file) {
         try {
             Detection d{};
             d.ID = std::stoi(cols[2]);
-            d.custom_frame = std::stol(cols[18]);
+            d.custom_frame = static_cast<long>(std::stod(cols[18]));
             d.cen_x = std::stod(cols[28]);
             d.cen_y = std::stod(cols[29]);
 
