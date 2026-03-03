@@ -14,11 +14,12 @@
 
 #include "md.h"
 #include "helptext.h"
+#include "ReadInput.h"
 
 namespace fs = std::filesystem;
 using namespace std;
 
-static const std::string PROGRAM_VERSION = "T1.0.5";
+static const std::string PROGRAM_VERSION = "T1.2.0";
 
 static void print_version() {
     std::cout << "MotionDynamics Version: " << PROGRAM_VERSION << std::endl;
@@ -144,6 +145,7 @@ int main(int argc, char* argv[])
     // ================================================================
 
     std::filesystem::path input_file;
+    std::filesystem::path parameter_file;
     std::filesystem::path output_dir;
     long frame_window = 200;
     long min_len = 0;
@@ -165,6 +167,9 @@ int main(int argc, char* argv[])
         }
         else if (arg == "-o" && i + 1 < argc) {
             output_dir = argv[++i];
+        }
+        else if (arg == "-p" && i + 1 < argc) {
+            parameter_file = argv[++i];
         }
         else if (arg == "--window" && i + 1 < argc) {
             try {
@@ -205,8 +210,9 @@ int main(int argc, char* argv[])
     }
 
     else if (track_mode && cal_pheno_mode) {
-        std::cout << "Warning: You are going to calculate phenotypes right after generation of tracks.\n";
-        std::cout << "So tracks are not filtered, make sure this is what you want.\n";
+        std::cerr << "ERROR:you cannot run both track mode and phenotyping mode at the same time!\n";
+        std::cerr << "Use either --track or --cal_pheno. Do not use both.\n";
+        return 1;
     }
 
     if (track_mode)
@@ -236,6 +242,30 @@ int main(int argc, char* argv[])
         int n_tracks = get_tracks(input_file, output_dir, frame_window, min_len);
     }
 
+    else if (cal_pheno_mode)
+    {
+        if (input_file.empty()) {
+            std::cerr << "Error: no input file (-i)\n";
+            return 1;
+        }
+
+        if (parameter_file.empty()) {
+            std::cerr << "Warning: no parameter file (-p). Will use default values\n\n";
+            std::cout << "Warning: no parameter file (-p). Will use default values\n\n";
+        }
+
+        if (load_parameters(parameter_file.string())){
+            cout << "Parameter read successfully:\n";
+        }
+        else {
+            cout << "Warning: Parameter read FAILED, using default values:\n";
+        }
+
+        print_parameters();
+
+
+
+    }
+
     return 0;
- 
 }

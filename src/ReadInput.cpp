@@ -1,4 +1,5 @@
 ﻿#include "ReadInput.h"
+#include "md.h"
 #include <fstream>
 #include <iostream>
 #include <sstream>
@@ -9,8 +10,19 @@
 #include <list>
 #include <stdexcept>
 #include <filesystem>  // C++17
+#include <iomanip>
 
 namespace fs = std::filesystem;
+
+double scale_factor = 1.0;
+double scale_factor_inv = 1.0;
+double d1 = 25.0;
+double d2 = 25.0;
+double d3 = 25.0;
+double e3 = 1.0;
+double d4 = 25.0;
+double r5in = 20.0;
+double r5out = 50.0;
 
 static std::vector<std::string> splitCSV(const std::string& line) {
     std::vector<std::string> out;
@@ -37,7 +49,6 @@ static std::vector<std::string> splitCSV(const std::string& line) {
     return out;
 }
 
-
 static int parse_third_column_id(const std::string& line)
 {
     // We want the 3rd column: time_MS, frame, ID, ...
@@ -55,6 +66,43 @@ static int parse_third_column_id(const std::string& line)
     const std::string id_str = line.substr(c2 + 1, c3 - (c2 + 1));
     // stoi tolerates leading/trailing spaces, but we expect clean CSV
     return std::stoi(id_str);
+}
+
+static bool parse_hhmmss(const std::string& s, VideoTime& t)
+{
+    // expects "HH:MM:SS" (len 8). Also tolerates whitespace.
+    auto isdigit2 = [](char c) { return c >= '0' && c <= '9'; };
+
+    std::string x = s;
+    // trim (minimal)
+    size_t a = x.find_first_not_of(" \t\r\n");
+    size_t b = x.find_last_not_of(" \t\r\n");
+    if (a == std::string::npos) return false;
+    x = x.substr(a, b - a + 1);
+
+    if (x.size() != 8 || x[2] != ':' || x[5] != ':') return false;
+    if (!isdigit2(x[0]) || !isdigit2(x[1]) ||
+        !isdigit2(x[3]) || !isdigit2(x[4]) ||
+        !isdigit2(x[6]) || !isdigit2(x[7])) return false;
+
+    t.hour = (x[0] - '0') * 10 + (x[1] - '0');
+    t.minute = (x[3] - '0') * 10 + (x[4] - '0');
+    t.second = (x[6] - '0') * 10 + (x[7] - '0');
+
+    if (t.hour < 0 || t.hour > 23) return false;
+    if (t.minute < 0 || t.minute > 59) return false;
+    if (t.second < 0 || t.second > 59) return false;
+
+    return true;
+}
+
+std::string hhmmss(const VideoTime& t)
+{
+    std::ostringstream oss;
+    oss << std::setw(2) << std::setfill('0') << t.hour << ":"
+        << std::setw(2) << std::setfill('0') << t.minute << ":"
+        << std::setw(2) << std::setfill('0') << t.second;
+    return oss.str();
 }
 
 void split_input_by_id(const fs::path input_file, const fs::path output_dir)
@@ -188,7 +236,7 @@ std::vector<Detection> ReadInput_Tzayhri(const fs::path& input_file) {
     std::ifstream fin(input_file);
 
     if (!fin.is_open()) {
-        std::cerr << "❌ Error opening: " << input_file << "\n";
+        std::cerr << "Error opening: " << input_file << "\n";
         return out;
     }
 
@@ -207,6 +255,14 @@ std::vector<Detection> ReadInput_Tzayhri(const fs::path& input_file) {
             d.custom_frame = static_cast<long>(std::stod(cols[18]));
             d.cen_x = std::stod(cols[28]);
             d.cen_y = std::stod(cols[29]);
+
+            d.pen = std::stoi(cols[20]);
+            d.day = std::stoi(cols[22]);
+
+            if (!parse_hhmmss(cols[23], d.timestamp)) {
+                // if timestamp missing/invalid, you can skip or set 0
+                //d.timestamp = { 0, 0, 0 };
+            }
 
             double tlx = std::stod(cols[3]);
             double tly = std::stod(cols[4]);
@@ -243,4 +299,102 @@ std::vector<Detection> ReadInput_Tzayhri(const fs::path& input_file) {
 
     std::cout << "Parsed " << out.size() << " detections from " << input_file << "\n";
     return out;
+}
+
+// ----------------------------
+// Simplified .ini parser
+// ----------------------------
+bool load_parameters(const std::string& filename)
+{
+    std::ifstream file(filename);
+    if (!file.is_open()) {
+        std::cerr << "Error: cannot open " << filename << "\n";
+        return false;
+    }
+
+    std::string line, section;
+    while (std::getline(file, line)) {
+        // remove comments
+        if (auto pos = line.find('#'); pos != std::string::npos)
+            line = line.substr(0, pos);
+
+        // trim
+        line.erase(0, line.find_first_not_of(" \t"));
+        line.erase(line.find_last_not_of(" \t") + 1);
+        if (line.empty()) continue;
+
+        // section
+        if (line.front() == '[' && line.back() == ']') {
+            section = line.substr(1, line.size() - 2);
+            continue;
+        }
+
+        // key = value
+        if (auto pos = line.find('='); pos != std::string::npos) {
+            std::string key = line.substr(0, pos);
+            std::string val = line.substr(pos + 1);
+            key.erase(0, key.find_first_not_of(" \t"));
+            key.erase(key.find_last_not_of(" \t") + 1);
+            val.erase(0, val.find_first_not_of(" \t"));
+            val.erase(val.find_last_not_of(" \t") + 1);
+
+            double dval = std::stod(val);
+            int ival = static_cast<int>(dval);
+
+            // map key to global
+            if (section == "geometry") {
+                if (key == "scale_factor") scale_factor = dval;
+            }
+            else if (section == "trait1") {
+                if (key == "d") d1 = dval;
+            }
+            else if (section == "trait2") {
+                if (key == "d") d2 = dval;
+            }
+            else if (section == "trait3") {
+                if (key == "d") d3 = dval;
+                else if (key == "e") e3 = dval;
+            }
+            else if (section == "trait4") {
+                if (key == "d") d4 = dval;
+            }
+            else if (section == "trait5") {
+                if (key == "r_in") r5in = dval; 
+                else if (key == "r_out") r5out = dval;
+            }
+        }
+    }
+
+    // derived quantities
+    scale_factor_inv = 1.0 / scale_factor;
+
+    return true;
+}
+
+void print_parameters()
+{
+    std::cout << "===== Loaded Parameters =====\n";
+
+    std::cout << "[geometry]\n";
+    std::cout << "scale_factor      = " << scale_factor << "\n";
+    std::cout << "scale_factor_inv  = " << scale_factor_inv << "\n\n";
+
+    std::cout << "[trait1]\n";
+    std::cout << "d = " << d1 << "\n\n";
+
+    std::cout << "[trait2]\n";
+    std::cout << "d = " << d2 << "\n\n";
+
+    std::cout << "[trait3]\n";
+    std::cout << "d = " << d3 << "\n";
+    std::cout << "e = " << e3 << "\n\n";
+
+    std::cout << "[trait4]\n";
+    std::cout << "d = " << d4 << "\n\n";
+
+    std::cout << "[trait5]\n";
+    std::cout << "r_in  = " << r5in << "\n";
+    std::cout << "r_out = " << r5out << "\n";
+
+    std::cout << "=============================\n";
 }

@@ -10,9 +10,20 @@ constexpr double kPI = 3.14159265358979323846;
 // ----------------------
 // Detection of one animal at one frame
 // ----------------------
+struct VideoTime {
+    int hour;
+    int minute;
+    int second;
+};
+
 struct Detection {
     int ID;
     long custom_frame;
+
+    int pen;
+    int day;
+    VideoTime timestamp;
+
     double cen_x;
     double cen_y;
     double dir_x;

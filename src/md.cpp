@@ -9,6 +9,8 @@
 #include <fstream>
 #include <string>
 #include <filesystem>
+#include <iomanip>
+#include <sstream>
 
 namespace fs = std::filesystem;
 using namespace std;
@@ -73,8 +75,8 @@ static void ensure_summary_header_if_needed(const fs::path& summary_file) {
             return;
         }
         fout
-            << "unique_track_id,file_name,ID,first_frame,last_frame,length,n_obs,max_gap,"
-            "d_begin2end,d_accumulate,max_jump\n";
+            << "unique_track_id,track_file,ID,first_frame,last_frame,length,n_obs,max_gap,d_begin2end,"
+            << "d_accumulate,max_jump,start_pen,start_day,start_time,end_pen,end_day,end_time\n";
     }
 }
 
@@ -90,7 +92,7 @@ static bool write_tracks_and_append_summary(const fs::path& input_file,
         return false;
     }
 
-    tracks_out << "custom_frame,ID,track_file_index,unique_track_id,x,y,dir_x,dir_y,angle\n";
+    tracks_out << "custom_frame,ID,track_file_index,unique_track_id,pen,day,hour,minute,second,x,y,angle\n";
 
     std::ofstream sum_out(global_summary_csv, std::ios::app);
     if (!sum_out.is_open()) {
@@ -118,10 +120,13 @@ static bool write_tracks_and_append_summary(const fs::path& input_file,
                 << d.ID << ","
                 << track_file_index << ","
                 << unique_track_id << ","
+                << d.pen << ","
+                << d.day << ","
+                << d.timestamp.hour << ","
+                << d.timestamp.minute << ","
+                << d.timestamp.second << ","
                 << d.cen_x << ","
                 << d.cen_y << ","
-                << d.dir_x << ","
-                << d.dir_y << ","
                 << d.angle << "\n";
         }
 
@@ -129,6 +134,19 @@ static bool write_tracks_and_append_summary(const fs::path& input_file,
         const long first_frame = tr.front().custom_frame;
         const long last_frame = tr.back().custom_frame;
         const long length = last_frame - first_frame;
+
+        const auto& start_ts = tr.front().timestamp;
+        const auto& end_ts = tr.back().timestamp;
+
+        const int start_pen = tr.front().pen;
+        const int start_day = tr.front().day;
+
+        const int end_pen = tr.back().pen;
+        const int end_day = tr.back().day;
+
+        const std::string start_time = hhmmss(start_ts);
+        const std::string end_time = hhmmss(end_ts);
+
         const long n_obs = static_cast<long>(tr.size());
 
         long   max_gap = 0;
@@ -160,7 +178,13 @@ static bool write_tracks_and_append_summary(const fs::path& input_file,
             << max_gap << ","
             << d_begin2end << ","
             << d_accumulate << ","
-            << max_jump << "\n";
+            << max_jump << ","
+            << start_pen << ","
+            << start_day << ","
+            << start_time << ","
+            << end_pen << ","
+            << end_day << ","
+            << end_time << "\n";
     }
 
     return true;
