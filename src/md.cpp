@@ -503,13 +503,12 @@ void calculate_phenotype(const fs::path& track_summary_csv, const fs::path& out_
     id_to_dets.reserve(id_to_file.size());
     for (const auto& kv : id_to_file) {
         const int ID = kv.first;
-        const std::string& file = kv.second;
+        const fs::path& file = track_summary_csv.parent_path() / kv.second;
         id_to_dets[ID] = load_id_detections(file);
         if (id_to_dets[ID].empty()) {
             std::cerr << "Warning: ID " << ID << " has 0 detections in " << file << "\n";
         }
     }
-
     // 5) events + active intervals
     std::vector<TrackInterval> intervals;
     std::vector<Event> events = build_events(track_info_list, intervals);
