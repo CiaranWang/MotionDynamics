@@ -11,6 +11,7 @@
 #include <stdexcept>
 #include <filesystem>  // C++17
 #include <iomanip>
+#include <algorithm>
 
 namespace fs = std::filesystem;
 
