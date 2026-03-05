@@ -16,13 +16,24 @@ namespace fs = std::filesystem;
 
 double scale_factor = 1.0;
 double scale_factor_inv = 1.0;
-double d1 = 25.0;
-double d2 = 25.0;
-double d3 = 25.0;
+
+double fps = 20.0;
+
+double r1 = 25.0;
+double r2 = 25.0;
+double r3 = 25.0;
 double e3 = 1.0;
-double d4 = 25.0;
+double r4 = 25.0;
 double r5in = 20.0;
 double r5out = 50.0;
+
+double r1_pix = 0.0;
+double r2_pix = 0.0;
+double r3_pix = 0.0;
+double e3_pix = 0.0;
+double r4_pix = 0.0;
+double r5in_pix = 0.0;
+double r5out_pix = 0.0;
 
 static std::vector<std::string> splitCSV(const std::string& line) {
     std::vector<std::string> out;
@@ -66,6 +77,19 @@ static int parse_third_column_id(const std::string& line)
     const std::string id_str = line.substr(c2 + 1, c3 - (c2 + 1));
     // stoi tolerates leading/trailing spaces, but we expect clean CSV
     return std::stoi(id_str);
+}
+
+static bool parse_int(const std::string& s, int& v) {
+    try { v = static_cast<int>(std::stod(s)); return true; }
+    catch (...) { return false; }
+}
+static bool parse_long(const std::string& s, long& v) {
+    try { v = static_cast<long>(std::stod(s)); return true; }
+    catch (...) { return false; }
+}
+static bool parse_double(const std::string& s, double& v) {
+    try { v = std::stod(s); return true; }
+    catch (...) { return false; }
 }
 
 static bool parse_hhmmss(const std::string& s, VideoTime& t)
@@ -230,7 +254,8 @@ void split_input_by_id(const fs::path input_file, const fs::path output_dir)
 }
 
 // Parser for coord_paper4.csv
-std::vector<Detection> ReadInput_Tzayhri(const fs::path& input_file) {
+std::vector<Detection> ReadInput_Tzayhri(const fs::path& input_file)
+{
     std::vector<Detection> out;
 
     std::ifstream fin(input_file);
@@ -243,7 +268,8 @@ std::vector<Detection> ReadInput_Tzayhri(const fs::path& input_file) {
     std::string line;
     std::getline(fin, line);  // skip header
 
-    while (std::getline(fin, line)) {
+    while (std::getline(fin, line))
+    {
         if (line.empty()) continue;
 
         auto cols = splitCSV(line);
@@ -259,10 +285,7 @@ std::vector<Detection> ReadInput_Tzayhri(const fs::path& input_file) {
             d.pen = std::stoi(cols[20]);
             d.day = std::stoi(cols[22]);
 
-            if (!parse_hhmmss(cols[23], d.timestamp)) {
-                // if timestamp missing/invalid, you can skip or set 0
-                //d.timestamp = { 0, 0, 0 };
-            }
+            parse_hhmmss(cols[23], d.timestamp);
 
             double tlx = std::stod(cols[3]);
             double tly = std::stod(cols[4]);
@@ -344,19 +367,20 @@ bool load_parameters(const std::string& filename)
             // map key to global
             if (section == "geometry") {
                 if (key == "scale_factor") scale_factor = dval;
+                else if (key == "fps") fps = dval;
             }
             else if (section == "trait1") {
-                if (key == "d") d1 = dval;
+                if (key == "r") r1 = dval;
             }
             else if (section == "trait2") {
-                if (key == "d") d2 = dval;
+                if (key == "r") r2 = dval;
             }
             else if (section == "trait3") {
-                if (key == "d") d3 = dval;
+                if (key == "r") r3 = dval;
                 else if (key == "e") e3 = dval;
             }
             else if (section == "trait4") {
-                if (key == "d") d4 = dval;
+                if (key == "r") r4 = dval;
             }
             else if (section == "trait5") {
                 if (key == "r_in") r5in = dval; 
@@ -376,25 +400,142 @@ void print_parameters()
     std::cout << "===== Loaded Parameters =====\n";
 
     std::cout << "[geometry]\n";
-    std::cout << "scale_factor      = " << scale_factor << "\n";
-    std::cout << "scale_factor_inv  = " << scale_factor_inv << "\n\n";
+    std::cout << "scale_factor      = " << scale_factor << "\n\n";
 
     std::cout << "[trait1]\n";
-    std::cout << "d = " << d1 << "\n\n";
+    std::cout << "r = " << r1 << "\n\n";
 
     std::cout << "[trait2]\n";
-    std::cout << "d = " << d2 << "\n\n";
+    std::cout << "r = " << r2 << "\n\n";
 
     std::cout << "[trait3]\n";
-    std::cout << "d = " << d3 << "\n";
+    std::cout << "r = " << r3 << "\n";
     std::cout << "e = " << e3 << "\n\n";
 
     std::cout << "[trait4]\n";
-    std::cout << "d = " << d4 << "\n\n";
+    std::cout << "r = " << r4 << "\n\n";
 
     std::cout << "[trait5]\n";
     std::cout << "r_in  = " << r5in << "\n";
     std::cout << "r_out = " << r5out << "\n";
 
-    std::cout << "=============================\n";
+    std::cout << "=============================\n\n";
+
+    std::cout << "===== Derived Parameters =====\n";
+
+    std::cout << "scale_factor_inv  = " << scale_factor_inv << "\n";
+    std::cout << "=============================\n\n";
+
+}
+
+std::vector<TrackSummary> load_tracks(const fs::path& filename)
+{
+    std::vector<TrackSummary> tracks;
+
+    std::ifstream fin(filename);
+    if (!fin.is_open()) {
+        std::cerr << "Error opening: " << filename << "\n";
+        return tracks;
+    }
+
+    std::string line;
+    std::getline(fin, line); // skip header
+
+    while (std::getline(fin, line))
+    {
+        if (line.empty()) continue;
+
+        auto cols = splitCSV(line);
+        if (cols.size() < 17) continue;
+
+        try
+        {
+            TrackSummary t{};
+
+            t.unique_track_id = cols[0];
+            t.track_file = cols[1];
+
+            t.ID = std::stoi(cols[2]);
+
+            // stod handles "5e+05"
+            t.first_frame = static_cast<long>(std::stod(cols[3]));
+            t.last_frame = static_cast<long>(std::stod(cols[4]));
+            t.length = static_cast<long>(std::stod(cols[5]));
+
+            t.n_obs = std::stoi(cols[6]);
+            t.max_gap = static_cast<long>(std::stod(cols[7]));
+
+            t.d_begin2end = std::stod(cols[8]);
+            t.d_accumulate = std::stod(cols[9]);
+            t.max_jump = std::stod(cols[10]);
+
+            t.start_pen = std::stoi(cols[11]);
+            t.start_day = std::stoi(cols[12]);
+
+            parse_hhmmss(cols[13], t.start_time);
+
+            t.end_pen = std::stoi(cols[14]);
+            t.end_day = std::stoi(cols[15]);
+
+            parse_hhmmss(cols[16], t.end_time);
+
+            tracks.push_back(t);
+        }
+        catch (...)
+        {
+            continue;
+        }
+    }
+
+    std::cout << "Parsed " << tracks.size()
+        << " tracks from " << filename << "\n";
+
+    return tracks;
+}
+
+std::vector<DetRow> load_id_detections(const fs::path& detailed_file)
+{
+    std::vector<DetRow> out;
+    std::ifstream fin(detailed_file);
+    if (!fin.is_open()) {
+        std::cerr << "Error opening detailed file: " << detailed_file << "\n";
+        return out;
+    }
+
+    std::string line;
+    std::getline(fin, line); // header
+
+    while (std::getline(fin, line)) {
+        if (line.empty()) continue;
+        auto cols = splitCSV(line);
+        if (cols.size() < 12) continue;
+
+        try {
+            DetRow d{};
+            d.frame = static_cast<long>(std::stod(cols[0])); // custom_frame
+            d.ID = std::stoi(cols[1]);
+
+            d.pen = std::stoi(cols[4]);
+            d.day = std::stoi(cols[5]);
+
+            d.ts.hour = std::stoi(cols[6]);
+            d.ts.minute = std::stoi(cols[7]);
+            d.ts.second = std::stoi(cols[8]);
+
+            d.x = std::stod(cols[9]);
+            d.y = std::stod(cols[10]);
+            d.angle = std::stod(cols[11]);
+
+            out.push_back(d);
+        }
+        catch (...) {
+            continue;
+        }
+    }
+
+    std::sort(out.begin(), out.end(),
+        [](const DetRow& a, const DetRow& b) { return a.frame < b.frame; });
+
+    std::cout << "Loaded " << out.size() << " detections from " << detailed_file << "\n";
+    return out;
 }

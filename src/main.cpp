@@ -19,7 +19,7 @@
 namespace fs = std::filesystem;
 using namespace std;
 
-static const std::string PROGRAM_VERSION = "T1.2.0";
+static const std::string PROGRAM_VERSION = "T2.0.0";
 
 static void print_version() {
     std::cout << "MotionDynamics Version: " << PROGRAM_VERSION << std::endl;
@@ -263,9 +263,7 @@ int main(int argc, char* argv[])
 
         print_parameters();
 
-
-
+        calculate_phenotype(input_file, output_dir);
     }
-
     return 0;
 }

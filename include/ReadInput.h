@@ -10,11 +10,12 @@
 
 extern double scale_factor;
 extern double scale_factor_inv;
-extern double d1;
-extern double d2;
-extern double d3;
+extern double fps;
+extern double r1;
+extern double r2;
+extern double r3;
 extern double e3;
-extern double d4;
+extern double r4;
 extern double r5in;
 extern double r5out;
 
@@ -23,4 +24,7 @@ std::string hhmmss(const VideoTime& t);
 void split_input_by_id(const std::filesystem::path input_file, const std::filesystem::path output_dir);
 bool load_parameters(const std::string& filename);
 void print_parameters();
+
+std::vector<TrackSummary> load_tracks(const std::filesystem::path& filename);
+std::vector<DetRow> load_id_detections(const std::filesystem::path& detailed_file);
 #endif
