@@ -136,6 +136,38 @@ struct PairWithin {
     int within_r4 = 0;
 };
 
+struct HourlyIndAccum {
+    long n_frames = 0;
+
+    double sum_trait1 = 0.0;
+
+    double sum_trait2 = 0.0;
+    long n_trait2_valid = 0;
+
+    double sum_trait3 = 0.0;
+    double sum_trait5 = 0.0;
+
+    VideoTime start_ts{};
+    VideoTime end_ts{};
+    bool has_time = false;
+};
+
+struct HourlyPairAccum {
+    long n_frames = 0;
+
+    double sum_dist = 0.0;
+    double sum_within_r4 = 0.0;
+
+    VideoTime start_ts{};
+    VideoTime end_ts{};
+    bool has_time = false;
+};
+
+static int time_to_sec(const VideoTime& t)
+{
+    return t.hour * 3600 + t.minute * 60 + t.second;
+}
+
 // ----------------------
 // Main engine entry point
 // ----------------------

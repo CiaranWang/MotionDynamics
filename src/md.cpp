@@ -41,9 +41,9 @@ static VideoTime seconds_to_time(long sec) {
     t.second = static_cast<int>(sec % 60L);
     return t;
 }
-static VideoTime time_at_frame(long frame, long anchor_frame, const VideoTime& anchor_time, double fps)
+static VideoTime time_at_frame(long frame, long anchor_frame, const VideoTime& anchor_time, double fps_)
 {
-    const double dt = static_cast<double>(frame - anchor_frame) / fps;
+    const double dt = static_cast<double>(frame - anchor_frame) / fps_;
     const long dsec = static_cast<long>(std::llround(dt)); // nearest second
     return seconds_to_time(time_to_seconds(anchor_time) + dsec);
 }
@@ -326,12 +326,22 @@ static void interpolate_xy(long frame, const DetRow& a, const DetRow& b, double&
     const double t = static_cast<double>(frame);
 
     if (std::abs(t1 - t0) < 1e-12) {
-        x = a.x; y = a.y;
+        x = a.x;
+        y = a.y;
         return;
     }
     const double w = (t - t0) / (t1 - t0);
     x = a.x + w * (b.x - a.x);
     y = a.y + w * (b.y - a.y);
+}
+
+static std::string time_to_string(const VideoTime& t)
+{
+    std::ostringstream oss;
+    oss << std::setw(2) << std::setfill('0') << t.hour << ":"
+        << std::setw(2) << std::setfill('0') << t.minute << ":"
+        << std::setw(2) << std::setfill('0') << t.second;
+    return oss.str();
 }
 
 static std::vector<Event> build_events(const std::vector<TrackSummary>& tracks,
@@ -386,6 +396,8 @@ static void compute_traits_for_frame(
     }
 
     std::vector<double> sum_dist_r2(n, 0.0);
+    out_pairs_r4.clear();
+    out_pairs_r4.reserve(static_cast<size_t>(n) * static_cast<size_t>(n - 1) / 2);
 
     // pairwise loop
     for (int i = 0; i < n; ++i)
@@ -443,7 +455,7 @@ static void compute_traits_for_frame(
 
             // Trait 5: weight within r5out
             if (dist <= r5out) {
-                double w;
+                double w = 0.0;
                 if (dist <= r5in) {
                     w = 1.0;
                 }
@@ -467,6 +479,89 @@ static void compute_traits_for_frame(
         }
     }
 }
+
+static void reset_hourly_accumulators(
+    std::vector<HourlyIndAccum>& ind_accum,
+    std::vector<HourlyPairAccum>& pair_accum)
+{
+    for (auto& x : ind_accum) x = HourlyIndAccum{};
+    for (auto& x : pair_accum) x = HourlyPairAccum{};
+}
+
+static void write_hourly_individual(
+    std::ofstream& fout_ind,
+    int pen,
+    int day,
+    int hour,
+    const std::vector<int>& unique_ids,
+    const std::vector<HourlyIndAccum>& ind_accum)
+{
+    for (int s = 0; s < static_cast<int>(unique_ids.size()); ++s)
+    {
+        const auto& acc = ind_accum[s];
+        if (acc.n_frames == 0) continue;
+
+        const double trait1 = acc.sum_trait1 / static_cast<double>(acc.n_frames);
+        const double trait3 = acc.sum_trait3 / static_cast<double>(acc.n_frames);
+        const double trait5 = acc.sum_trait5 / static_cast<double>(acc.n_frames);
+
+        double trait2 = std::numeric_limits<double>::quiet_NaN();
+        if (acc.n_trait2_valid > 0) {
+            trait2 = acc.sum_trait2 / static_cast<double>(acc.n_trait2_valid);
+        }
+
+        fout_ind
+            << pen << ","
+            << day << ","
+            << hour << ","
+            << unique_ids[s] << ","
+            << time_to_string(acc.start_ts) << ","
+            << time_to_string(acc.end_ts) << ","
+            << acc.n_frames << ","
+            << trait1 << ","
+            << trait2 << ","
+            << trait3 << ","
+            << trait5
+            << "\n";
+    }
+}
+
+static void write_hourly_pairs(
+    std::ofstream& fout_pair,
+    int pen,
+    int day,
+    int hour,
+    const std::vector<int>& unique_ids,
+    const std::vector<HourlyPairAccum>& pair_accum)
+{
+    const int N = static_cast<int>(unique_ids.size());
+
+    for (int s1 = 0; s1 < N; ++s1)
+    {
+        for (int s2 = s1 + 1; s2 < N; ++s2)
+        {
+            const auto& acc = pair_accum[s1 * N + s2];
+            if (acc.n_frames == 0) continue;
+
+            const double mean_dist = acc.sum_dist / static_cast<double>(acc.n_frames);
+            const double prop_within_r4 = acc.sum_within_r4 / static_cast<double>(acc.n_frames);
+
+            fout_pair
+                << pen << ","
+                << day << ","
+                << hour << ","
+                << unique_ids[s1] << ","
+                << unique_ids[s2] << ","
+                << time_to_string(acc.start_ts) << ","
+                << time_to_string(acc.end_ts) << ","
+                << acc.n_frames << ","
+                << mean_dist << ","
+                << prop_within_r4
+                << "\n";
+        }
+    }
+}
+
 
 void calculate_phenotype(const fs::path& track_summary_csv, const fs::path& out_csv)
 {
@@ -494,9 +589,31 @@ void calculate_phenotype(const fs::path& track_summary_csv, const fs::path& out_
     // 3) Map ID -> detailed file (each ID has one file)
     std::unordered_map<int, std::string> id_to_file;
     id_to_file.reserve(track_info_list.size());
+
     for (const auto& t : track_info_list) {
-        id_to_file[t.ID] = t.track_file;
+        auto it = id_to_file.find(t.ID);
+        if (it == id_to_file.end()) {
+            id_to_file.emplace(t.ID, t.track_file);
+        }
+        else if (it->second != t.track_file) {
+            std::cerr << "Warning: inconsistent track_file for ID " << t.ID << "\n";
+        }
     }
+
+    // unique IDs + slot map
+    std::vector<int> unique_ids;
+    unique_ids.reserve(id_to_file.size());
+    for (const auto& kv : id_to_file) unique_ids.push_back(kv.first);
+    std::sort(unique_ids.begin(), unique_ids.end());
+
+    std::unordered_map<int, int> id_to_slot;
+    id_to_slot.reserve(unique_ids.size());
+    for (int s = 0; s < static_cast<int>(unique_ids.size()); ++s) {
+        id_to_slot[unique_ids[s]] = s;
+    }
+
+    const int N = static_cast<int>(unique_ids.size());
+
 
     // 4) load all detections for each ID
     std::unordered_map<int, std::vector<DetRow>> id_to_dets;
@@ -545,20 +662,25 @@ void calculate_phenotype(const fs::path& track_summary_csv, const fs::path& out_
     }
 
     // Headers
-    fout_ind
-        << "frame,ID,observed,pen,day,hh,mm,ss,x_pix,y_pix,"
-        << "trait1,"
-        << "trait2,"
-        << "trait3,"
-        << "trait5\n";
+    fout_ind 
+        << "pen,day,hour,ID,start_ts,end_ts,n_frames,trait1,trait2,trait3,trait5\n";
 
     fout_pair
-        << "frame,timestap,ID1,observed1,ID2,observed2,pen,day,dist_cm,within_r4\n";
+        << "pen,day,hour,ID1,ID2,start_timestamp,end_timestamp,n_frames,mean_dist_cm,prop_within_r4\n";
 
     // 9) frame iteration
     std::vector<FrameObs> frame_rows;
     std::vector<TraitsPerInd> traits;
     std::vector<PairWithin> pairs_r4;
+
+    // hourly accumulators
+    std::vector<HourlyIndAccum> ind_accum(N);
+    std::vector<HourlyPairAccum> pair_accum(N * N);
+
+    bool hour_initialized = false;
+    int current_pen = -1;
+    int current_day = -1;
+    int current_hour = -1;
 
     size_t epos = 0;
 
@@ -608,8 +730,10 @@ void calculate_phenotype(const fs::path& track_summary_csv, const fs::path& out_
             if (a.frame == i) {
                 // observed
                 fo.observed = true;
-                fo.x = a.x; fo.y = a.y;
-                fo.pen = a.pen; fo.day = a.day;
+                fo.x = a.x;
+                fo.y = a.y;
+                fo.pen = a.pen; 
+                fo.day = a.day;
                 fo.ts = a.ts;
 
                 if (!have_anchor) {
@@ -642,53 +766,102 @@ void calculate_phenotype(const fs::path& track_summary_csv, const fs::path& out_
 
         if (frame_rows.empty()) continue;
 
-        // Compute traits 1,2,3,5 per ID + trait 4 per pair
+        const int frame_day = frame_rows[0].day;
+        const int frame_hour = frame_rows[0].ts.hour;
+        const int frame_pen = frame_rows[0].pen;
+
+        if (!hour_initialized) {
+            current_pen = frame_pen;
+            current_day = frame_day;
+            current_hour = frame_hour;
+            hour_initialized = true;
+        }
+        else if (frame_pen != current_pen || frame_day != current_day || frame_hour != current_hour) {
+            write_hourly_individual(fout_ind, current_pen, current_day, current_hour, unique_ids, ind_accum);
+            write_hourly_pairs(fout_pair, current_pen, current_day, current_hour, unique_ids, pair_accum);
+
+            reset_hourly_accumulators(ind_accum, pair_accum);
+
+            current_pen = frame_pen;
+            current_day = frame_day;
+            current_hour = frame_hour;
+        }
+
+        // Compute frame level traits 1,2,3,5 per ID + trait 4 per pair
         compute_traits_for_frame(frame_rows, i, traits, pairs_r4);
 
-        // Write output rows
+        // accumulate individual
         for (size_t idx = 0; idx < frame_rows.size(); ++idx)
         {
             const FrameObs& fo = frame_rows[idx];
             const TraitsPerInd& tr = traits[idx];
 
-            fout_ind
-                << fo.frame << ","
-                << fo.ID << ","
-                << (fo.observed ? 1 : 0) << ","
-                << fo.pen << ","
-                << fo.day << ","
-                << fo.ts.hour << ","
-                << fo.ts.minute << ","
-                << fo.ts.second << ","
-                << fo.x << ","
-                << fo.y << ","
-                << tr.n_within_r1 << ","
-                << tr.mean_dist_r2 << ","
-                << tr.prox_intensity_r3 << ","
-                << tr.personal_space_r5
-                << "\n";
+            const int s = id_to_slot[fo.ID];
+            auto& acc = ind_accum[s];
+
+            acc.n_frames++;
+            acc.sum_trait1 += tr.n_within_r1;
+            acc.sum_trait3 += tr.prox_intensity_r3;
+            acc.sum_trait5 += tr.personal_space_r5;
+
+            if (!std::isnan(tr.mean_dist_r2)) {
+                acc.sum_trait2 += tr.mean_dist_r2;
+                acc.n_trait2_valid++;
+            }
+
+            if (!acc.has_time) {
+                acc.start_ts = fo.ts;
+                acc.end_ts = fo.ts;
+                acc.has_time = true;
+            }
+            else {
+                if (time_to_seconds(fo.ts) < time_to_seconds(acc.start_ts))
+                    acc.start_ts = fo.ts;
+                if (time_to_seconds(fo.ts) > time_to_seconds(acc.end_ts))
+                    acc.end_ts = fo.ts;
+            }
         }
 
-        // Write PAIR file (all pairs among IDs present)
+        // accumulate pairs
         for (const auto& pw : pairs_r4)
         {
-            fout_pair
-                << pw.frame << ","
-                << pw.ts.hour << ":" << pw.ts.minute << ":" << pw.ts.second << ","
-                << pw.ID1 << ","
-                << pw.observed1 << ","
-                << pw.ID2 << ","
-                << pw.observed2 << ","
-                << pw.pen << ","
-                << pw.day << ","
-                << pw.dist << ","
-                << pw.within_r4
-                << "\n";
+            int id1 = pw.ID1;
+            int id2 = pw.ID2;
+            if (id1 > id2) std::swap(id1, id2);
+
+            const int s1 = id_to_slot[id1];
+            const int s2 = id_to_slot[id2];
+
+            auto& acc = pair_accum[s1 * N + s2];
+            acc.n_frames++;
+            acc.sum_dist += pw.dist;
+            acc.sum_within_r4 += pw.within_r4;
+
+            if (!acc.has_time) {
+                acc.start_ts = pw.ts;
+                acc.end_ts = pw.ts;
+                acc.has_time = true;
+            }
+            else {
+                if (time_to_seconds(pw.ts) < time_to_seconds(acc.start_ts))
+                    acc.start_ts = pw.ts;
+                if (time_to_seconds(pw.ts) > time_to_seconds(acc.end_ts))
+                    acc.end_ts = pw.ts;
+            }
         }
+    }
+
+    // flush last hour
+    if (hour_initialized) {
+        write_hourly_individual(fout_ind, current_pen, current_day, current_hour, unique_ids, ind_accum);
+        write_hourly_pairs(fout_pair, current_pen, current_day, current_hour, unique_ids, pair_accum);
     }
 
     fout_ind.close();
     fout_pair.close();
 
-    std::cout << "Finished.\nWrote:\n  " << out_csv << "\n  " << out_pairs_csv << "\n";
+    std::cout << "Finished.\n";
+    std::cout << "Wrote:\n";
+    std::cout << "  " << out_csv << "\n";
+    std::cout << "  " << out_pairs_csv << "\n";
 }

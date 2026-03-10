@@ -19,7 +19,7 @@
 namespace fs = std::filesystem;
 using namespace std;
 
-static const std::string PROGRAM_VERSION = "T2.0.3";
+static const std::string PROGRAM_VERSION = "T2.1.3";
 
 static void print_version() {
     std::cout << "MotionDynamics Version: " << PROGRAM_VERSION << std::endl;
