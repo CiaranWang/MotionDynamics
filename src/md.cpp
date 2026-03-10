@@ -732,9 +732,8 @@ void calculate_phenotype(const fs::path& track_summary_csv, const fs::path& out_
                 fo.observed = true;
                 fo.x = a.x;
                 fo.y = a.y;
-                fo.pen = a.pen; 
+                fo.pen = a.pen;
                 fo.day = a.day;
-                fo.ts = a.ts;
 
                 if (!have_anchor) {
                     have_anchor = true;
@@ -753,18 +752,20 @@ void calculate_phenotype(const fs::path& track_summary_csv, const fs::path& out_
 
                 fo.pen = a.pen;
                 fo.day = a.day;
-
-                if (have_anchor) fo.ts = time_at_frame(i, anchor_frame, anchor_time, fps);
-                else {
-                    fo.ts = a.ts; // fallback (early frames)
-                    cerr << "Warning, did not find anchor to interpolate timestamp \n";            
-                }
             }
-
             frame_rows.push_back(fo);
         }
 
         if (frame_rows.empty()) continue;
+        if (!have_anchor) {
+            std::cerr << "Warning: no anchor found for frame timestamp at frame " << i << "\n";
+            continue;
+        }
+        VideoTime frame_ts = time_at_frame(i, anchor_frame, anchor_time, fps);
+
+        for (auto& fo : frame_rows) {
+            fo.ts = frame_ts;
+        }
 
         const int frame_day = frame_rows[0].day;
         const int frame_hour = frame_rows[0].ts.hour;
