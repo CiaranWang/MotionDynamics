@@ -16,16 +16,20 @@ Options:
   --window [N]                Max allowed frame gaps within a track.(default: 200)
   --min_len [N]                Minium length of track.(default: 0)
 
-  --cal_pheno         This tells the program to calculate phenotype (unfinished)
-
+  --cal_pheno         This tells the program to calculate phenotype
+  -i /PATH/TO/INPUT_FILE.csv This is the track_summary file you get from --track mode. 
+						and the .csv track file per ID should be in the same folder
+  -p /PATH/TO/PARAMETER_FILE.ini
 
 Linux Example:
-  ./MotionDynamic_4TO --track -i coord_paper4.csv
-  ./MotionDynamic_4TO --track -i coord_paper4.csv -o ./exp1 --window 250  --min_len 1000
+  ./MotionDynamics_4TO --track -i coord_paper4.csv
+  ./MotionDynamics_4TO --track -i coord_paper4.csv -o ./exp1 --window 250  --min_len 1000
+  ./MotionDynamics_4TO --cal_pheno -i coord_paper4_track_summary.csv -p parameters.ini -o coord_paper4_traits.csv
  
 Windows Example:
-  MotionDynamic_4TO.exe --track -i coord_paper4.csv
-  MotionDynamic_4TO.exe --track -i coord_paper4.csv -o ./exp1 --window 250  --min_len 1000
+  MotionDynamics_4TO.exe --track -i coord_paper4.csv
+  MotionDynamics_4TO.exe --track -i coord_paper4.csv -o ./exp1 --window 250  --min_len 1000
+  MotionDynamics_4TO.exe --cal_pheno -i coord_paper4_track_summary.csv -p parameters.ini -o coord_paper4_traits.csv
 
 Report bugs to: zhuoshi.wang@wur.nl
 )";

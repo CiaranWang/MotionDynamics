@@ -31,6 +31,7 @@ static bool ends_with(const std::string& s, const std::string& suf) {
 static long time_to_seconds(const VideoTime& t) {
     return 3600L * t.hour + 60L * t.minute + t.second;
 }
+
 static VideoTime seconds_to_time(long sec) {
     sec %= 86400L;
     if (sec < 0) sec += 86400L;
@@ -41,11 +42,90 @@ static VideoTime seconds_to_time(long sec) {
     t.second = static_cast<int>(sec % 60L);
     return t;
 }
-static VideoTime time_at_frame(long frame, long anchor_frame, const VideoTime& anchor_time, double fps_)
+
+static long unwrap_to_near(long sec, long ref)
 {
-    const double dt = static_cast<double>(frame - anchor_frame) / fps_;
-    const long dsec = static_cast<long>(std::llround(dt)); // nearest second
-    return seconds_to_time(time_to_seconds(anchor_time) + dsec);
+    // Move sec by +/- 86400 so it is closest to ref
+    while (sec - ref > 43200L) sec -= 86400L;
+    while (sec - ref < -43200L) sec += 86400L;
+    return sec;
+}
+
+static long median_long(std::vector<long> v)
+{
+    if (v.empty()) return 0;
+    std::sort(v.begin(), v.end());
+    const size_t n = v.size();
+    if (n % 2 == 1) return v[n / 2];
+    return static_cast<long>(std::llround((v[n / 2 - 1] + v[n / 2]) / 2.0));
+}
+
+static std::vector<GlobalTimePoint> build_global_time_points(
+    const std::unordered_map<int, std::vector<DetRow>>& id_to_dets)
+{
+    std::unordered_map<long, std::vector<long>> frame_to_secs;
+
+    // collect all observed timestamps from all IDs
+    for (const auto& kv : id_to_dets) {
+        const auto& dets = kv.second;
+        for (const auto& d : dets) {
+            frame_to_secs[d.frame].push_back(time_to_seconds(d.ts));
+        }
+    }
+
+    // sort frames
+    std::vector<long> frames;
+    frames.reserve(frame_to_secs.size());
+    for (const auto& kv : frame_to_secs) {
+        frames.push_back(kv.first);
+    }
+    std::sort(frames.begin(), frames.end());
+
+    std::vector<GlobalTimePoint> out;
+    out.reserve(frames.size());
+
+    long prev_sec_unwrapped = 0;
+    bool first = true;
+
+    for (long f : frames) {
+        auto secs = frame_to_secs[f];
+
+        // unwrap all seconds to be near previous point, to handle midnight nicely
+        if (!first) {
+            for (auto& s : secs) {
+                s = unwrap_to_near(s, prev_sec_unwrapped);
+            }
+        }
+
+        long sec_rep = median_long(secs);
+
+        if (first) {
+            prev_sec_unwrapped = sec_rep;
+            first = false;
+        }
+        else {
+            sec_rep = unwrap_to_near(sec_rep, prev_sec_unwrapped);
+            prev_sec_unwrapped = sec_rep;
+        }
+
+        out.push_back(GlobalTimePoint{ f, sec_rep });
+    }
+
+    return out;
+}
+
+static VideoTime interpolate_between_points(
+    long frame,
+    long f0, long sec0,
+    long f1, long sec1)
+{
+    if (f0 == f1) return seconds_to_time(sec0);
+
+    const double w = static_cast<double>(frame - f0) / static_cast<double>(f1 - f0);
+    const double sec_interp = static_cast<double>(sec0)
+        + w * static_cast<double>(sec1 - sec0);
+
+    return seconds_to_time(static_cast<long>(std::llround(sec_interp)));
 }
 
 static std::vector<std::vector<Detection>>
@@ -273,49 +353,6 @@ int get_tracks(const fs::path& input,
     }
 
     return number_tracks;
-}
-
-static bool find_exact_by_frame(const std::vector<DetRow>& dets, long frame, DetRow& out)
-{
-    auto it = std::lower_bound(dets.begin(), dets.end(), frame,
-        [](const DetRow& d, long f) { return d.frame < f; });
-    if (it != dets.end() && it->frame == frame) {
-        out = *it;
-        return true;
-    }
-    return false;
-}
-
-static bool find_prev_next_in_bounds(
-    const std::vector<DetRow>& dets,
-    long frame,
-    long lo, long hi,
-    DetRow& prev, DetRow& next)
-{
-    // first element with d.frame >= frame
-    auto it = std::lower_bound(dets.begin(), dets.end(), frame,
-        [](const DetRow& d, long f) { return d.frame < f; });
-
-    // next: at it (or later) but must be within bounds and > frame
-    auto it_next = it;
-    while (it_next != dets.end() && it_next->frame < lo) ++it_next;
-    while (it_next != dets.end() && it_next->frame <= frame) ++it_next;
-    if (it_next == dets.end() || it_next->frame > hi) return false;
-
-    // prev: element before it, but within bounds and < frame
-    auto it_prev = it;
-    if (it_prev == dets.begin()) return false;
-    --it_prev;
-    while (true) {
-        if (it_prev->frame < lo) return false;
-        if (it_prev->frame < frame) break;
-        if (it_prev == dets.begin()) return false;
-        --it_prev;
-    }
-
-    prev = *it_prev;
-    next = *it_next;
-    return true;
 }
 
 static void interpolate_xy(long frame, const DetRow& a, const DetRow& b, double& x, double& y)
@@ -626,6 +663,20 @@ void calculate_phenotype(const fs::path& track_summary_csv, const fs::path& out_
             std::cerr << "Warning: ID " << ID << " has 0 detections in " << file << "\n";
         }
     }
+
+    std::vector<GlobalTimePoint> global_time_points = build_global_time_points(id_to_dets);
+    if (global_time_points.empty()) {
+        std::cerr << "Error: no global time support points could be built.\n";
+        return;
+    }
+
+    for (size_t z = 1; z < global_time_points.size(); ++z) {
+        if (global_time_points[z].frame <= global_time_points[z - 1].frame) {
+            std::cerr << "Error: global_time_points not strictly increasing by frame.\n";
+            return;
+        }
+    }
+
     // 5) events + active intervals
     std::vector<TrackInterval> intervals;
     std::vector<Event> events = build_events(track_info_list, intervals);
@@ -637,11 +688,6 @@ void calculate_phenotype(const fs::path& track_summary_csv, const fs::path& out_
     // Per-active-ID cursor: index "k" such that dets[k].frame <= i < dets[k+1].frame
     std::unordered_map<int, size_t> cursor;
     cursor.reserve(id_to_file.size());
-
-    // 7) Anchor for fps-based timestamp
-    bool have_anchor = false;
-    long anchor_frame = 0;
-    VideoTime anchor_time{};
 
     // 8) Open output files
     std::ofstream fout_ind(out_csv);
@@ -683,6 +729,17 @@ void calculate_phenotype(const fs::path& track_summary_csv, const fs::path& out_
     int current_hour = -1;
 
     size_t epos = 0;
+
+    size_t gidx = 0;
+    GlobalTimePoint prev_tp{};
+    GlobalTimePoint next_tp{};
+    bool have_prev_tp = false;
+    bool have_next_tp = false;
+
+    if (!global_time_points.empty()) {
+        next_tp = global_time_points[0];
+        have_next_tp = true;
+    }
 
     for (long i = min_start_frame; i <= max_end_frame; ++i)
     {
@@ -728,21 +785,13 @@ void calculate_phenotype(const fs::path& track_summary_csv, const fs::path& out_
             const DetRow& a = dets[k];
 
             if (a.frame == i) {
-                // observed
                 fo.observed = true;
                 fo.x = a.x;
                 fo.y = a.y;
                 fo.pen = a.pen;
                 fo.day = a.day;
-
-                if (!have_anchor) {
-                    have_anchor = true;
-                    anchor_frame = i;
-                    anchor_time = a.ts;
-                }
             }
             else {
-                // interpolated
                 if (k + 1 >= dets.size()) continue;
                 const DetRow& b = dets[k + 1];
                 if (!(a.frame < i && i < b.frame)) continue;
@@ -757,12 +806,47 @@ void calculate_phenotype(const fs::path& track_summary_csv, const fs::path& out_
         }
 
         if (frame_rows.empty()) continue;
-        if (!have_anchor) {
-            std::cerr << "Warning: no anchor found for frame timestamp at frame " << i << "\n";
+
+        // Advance global support points so that:
+        // prev_tp.frame < = i < = next_tp.frame (when available)
+        while (gidx < global_time_points.size() && global_time_points[gidx].frame < i) {
+            prev_tp = global_time_points[gidx];
+            have_prev_tp = true;
+            ++gidx;
+        }
+
+        if (gidx < global_time_points.size()) {
+            next_tp = global_time_points[gidx];
+            have_next_tp = true;
+        }
+        else {
+            have_next_tp = false;
+        }
+
+        VideoTime frame_ts{};
+
+        if (have_next_tp && next_tp.frame == i) {
+            frame_ts = seconds_to_time(next_tp.sec);
+        }
+        else if (have_prev_tp && have_next_tp) {
+            frame_ts = interpolate_between_points(
+                i,
+                prev_tp.frame, prev_tp.sec,
+                next_tp.frame, next_tp.sec
+            );
+        }
+        else if (have_prev_tp) {
+            frame_ts = seconds_to_time(prev_tp.sec);
+        }
+        else if (have_next_tp) {
+            frame_ts = seconds_to_time(next_tp.sec);
+        }
+        else {
+            std::cerr << "Error: no global timestamp support available at frame " << i << "\n";
             continue;
         }
-        VideoTime frame_ts = time_at_frame(i, anchor_frame, anchor_time, fps);
 
+        // all IDs at the same frame get the same timestamp
         for (auto& fo : frame_rows) {
             fo.ts = frame_ts;
         }

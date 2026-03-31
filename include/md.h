@@ -122,6 +122,11 @@ struct TraitsPerInd {
     double personal_space_r5 = 0.0;
 };
 
+struct GlobalTimePoint {
+    long frame = 0;
+    long sec = 0;   // seconds since midnight
+};
+
 // 4) per-pair per-frame marker
 struct PairWithin {
     long frame = 0;
