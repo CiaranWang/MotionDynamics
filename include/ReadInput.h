@@ -20,6 +20,7 @@ extern double r5in;
 extern double r5out;
 
 std::vector<Detection> ReadInput_Tzayhri(const std::filesystem::path& input_file);
+std::vector<Detection> ReadInput1(const std::filesystem::path& input_file);
 std::string hhmmss(const VideoTime& t);
 void split_input_by_id(const std::filesystem::path input_file, const std::filesystem::path output_dir);
 bool load_parameters(const std::string& filename);

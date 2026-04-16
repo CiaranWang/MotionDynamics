@@ -322,7 +322,7 @@ int get_tracks(const fs::path& input,
         if (ends_with(file.stem().string(), "_tracks")) continue;
 
         std::cout << "Processing CSV: " << file << "\n";
-        std::vector<Detection> detections = ReadInput_Tzayhri(file);
+        std::vector<Detection> detections = ReadInput1(file);
         if (detections.empty()) continue;
 
         auto tracks = build_tracks_per_id(detections, frame_window, min_len);
@@ -354,6 +354,8 @@ int get_tracks(const fs::path& input,
 
     return number_tracks;
 }
+
+
 
 static void interpolate_xy(long frame, const DetRow& a, const DetRow& b, double& x, double& y)
 {

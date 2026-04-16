@@ -12,6 +12,7 @@
 #include <filesystem>  // C++17
 #include <iomanip>
 #include <algorithm>
+#include <regex>
 
 namespace fs = std::filesystem;
 
@@ -35,6 +36,15 @@ double e3_pix = 0.0;
 double r4_pix = 0.0;
 double r5in_pix = 0.0;
 double r5out_pix = 0.0;
+
+static std::string trim(const std::string& s)
+{
+    size_t start = s.find_first_not_of(" \t\r\n");
+    if (start == std::string::npos) return "";
+
+    size_t end = s.find_last_not_of(" \t\r\n");
+    return s.substr(start, end - start + 1);
+}
 
 static std::vector<std::string> splitCSV(const std::string& line) {
     std::vector<std::string> out;
@@ -76,6 +86,22 @@ static int parse_third_column_id(const std::string& line)
 
     // Extract ID substring
     const std::string id_str = line.substr(c2 + 1, c3 - (c2 + 1));
+    // stoi tolerates leading/trailing spaces, but we expect clean CSV
+    return std::stoi(id_str);
+}
+
+static int parse_second_column_id(const std::string& line)
+{
+    // We want the 2nd column: custom_frame, id, ...
+    // Find 1st, 2nd, 3rd commas; ID is between 2nd and 3rd.
+    size_t c1 = line.find(',');
+    if (c1 == std::string::npos) throw std::runtime_error("Malformed line (no comma #1).");
+
+    size_t c2 = line.find(',', c1 + 1);
+    if (c2 == std::string::npos) throw std::runtime_error("Malformed line (no comma #2).");
+
+    // Extract ID substring
+    const std::string id_str = line.substr(c1 + 1, c2 - (c1 + 1));
     // stoi tolerates leading/trailing spaces, but we expect clean CSV
     return std::stoi(id_str);
 }
@@ -232,7 +258,7 @@ void split_input_by_id(const fs::path input_file, const fs::path output_dir)
 
         int id = 0;
         try {
-            id = parse_third_column_id(line);
+            id = parse_second_column_id(line);
         }
         catch (const std::exception& e) {
             std::cerr << "Warning: skipping malformed line " << line_no << ": " << e.what() << "\n";
@@ -252,6 +278,121 @@ void split_input_by_id(const fs::path input_file, const fs::path output_dir)
 
     std::cerr << "Done. Wrote " << rows_written << " rows"
         << " (skipped " << rows_skipped << ") into: " << output_dir.string() << "\n";
+}
+
+static int parse_day_from_filename(const std::filesystem::path& input_file)
+{
+    const std::string name = input_file.filename().string();
+
+    // 匹配开头8位数字：YYYYMMDD
+    static const std::regex re(R"(^(\d{8}))");
+
+    std::smatch m;
+    if (std::regex_search(name, m, re)) {
+        return std::stoi(m[1].str());
+    }
+
+    throw std::runtime_error("Cannot parse date from filename: " + name);
+}
+
+// Parser for coord_paper4.csv
+std::vector<Detection> ReadInput1(const fs::path& input_file)
+{
+    std::vector<Detection> out;
+
+    std::ifstream fin(input_file);
+
+    if (!fin.is_open()) {
+        std::cerr << "Error opening: " << input_file << "\n";
+        return out;
+    }
+
+    std::string line;
+    if (!std::getline(fin, line)) {
+        std::cerr << "Empty file: " << input_file << "\n";
+        return out;
+    }
+
+    auto header = splitCSV(line);
+    std::unordered_map<std::string, size_t> col_idx;
+    for (size_t i = 0; i < header.size(); ++i) {
+        col_idx[trim(header[i])] = i;
+    }
+
+    auto has_col = [&](const std::string& name) -> bool {
+        return col_idx.find(name) != col_idx.end();
+    };
+
+    auto get_col = [&](const std::string& name) -> size_t {
+        auto it = col_idx.find(name);
+        if (it == col_idx.end()) {
+            throw std::runtime_error("Missing required column: " + name);
+        }
+        return it->second;
+    };
+
+    // Required columns in the merged fit output
+    const size_t idx_id = get_col("id");
+    const size_t idx_custom_frame = get_col("custom_frame");
+    const size_t idx_center_x = get_col("center_x");
+    const size_t idx_center_y = get_col("center_y");
+    const size_t idx_dir_x = get_col("dir_x");
+    const size_t idx_dir_y = get_col("dir_y");
+
+    // Optional columns
+    //const bool has_scale_l = has_col("scale_l");
+    //const bool has_n_markers = has_col("n_markers");
+    //const bool has_conflict = has_col("boundary_conflict");
+
+    while (std::getline(fin, line))
+    {
+        if (line.empty()) continue;
+
+        auto cols = splitCSV(line);
+
+        try {
+            Detection d{};
+
+            if (cols.size() <= std::max({ idx_id, idx_custom_frame, idx_center_x, idx_center_y, idx_dir_x, idx_dir_y })) {
+                continue;
+            }
+
+            d.ID = std::stoi(cols[idx_id]);
+            d.custom_frame = static_cast<long>(std::stoll(cols[idx_custom_frame]));
+            d.cen_x = std::stod(cols[idx_center_x]);
+            d.cen_y = std::stod(cols[idx_center_y]);
+            d.dir_x = std::stod(cols[idx_dir_x]);
+            d.dir_y = std::stod(cols[idx_dir_y]);
+
+            d.pen = 0;
+            d.day = parse_day_from_filename(input_file);   // 推荐
+            d.timestamp.hour = 0;
+            d.timestamp.minute = 0;
+            d.timestamp.second = 0;
+
+            // Optional: recompute norm just in case
+            double norm = std::sqrt(d.dir_x * d.dir_x + d.dir_y * d.dir_y);
+            if (norm > 1e-9) {
+                d.dir_x /= norm;
+                d.dir_y /= norm;
+            }
+            else {
+                d.dir_x = 0.0;
+                d.dir_y = 0.0;
+            }
+
+            d.angle = std::atan2(d.dir_y, d.dir_x);
+            if (d.angle < 0) d.angle += 2.0 * kPI;
+
+            out.push_back(d);
+        }
+        catch (...) {
+            continue;
+        }
+    }
+
+    std::cout << "Parsed " << out.size() << " detections from " << input_file << "\n";
+    return out;
 }
 
 // Parser for coord_paper4.csv
