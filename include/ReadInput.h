@@ -11,13 +11,21 @@
 extern double scale_factor;
 extern double scale_factor_inv;
 extern double fps;
-extern double r1;
-extern double r2;
-extern double r3;
-extern double e3;
-extern double r4;
-extern double r5in;
-extern double r5out;
+
+extern double moving_speed_threshold;
+
+extern double density_sigma;
+extern double density_r;
+extern double density_sector_r;
+extern double density_sector_theta_deg;
+
+extern double density_grid_step;
+extern double density_min_x;
+extern double density_max_x;
+extern double density_min_y;
+extern double density_max_y;
+
+extern int density_exclude_self;
 
 std::vector<Detection> ReadInput_Tzayhri(const std::filesystem::path& input_file);
 std::vector<Detection> ReadInput1(const std::filesystem::path& input_file);

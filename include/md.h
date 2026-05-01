@@ -82,8 +82,14 @@ struct DetRow {
 struct FrameObs {
     long frame = 0;
     int ID = 0;
-    bool observed = false;   // true if from file, false if interpolated
-    double x = 0.0, y = 0.0;
+    bool observed = false;
+
+    double x = 0.0;
+    double y = 0.0;
+
+    double dir_x = 0.0;
+    double dir_y = 0.0;
+
     VideoTime ts{};
     int pen = 0;
     int day = 0;
@@ -108,18 +114,10 @@ struct TraitsPerInd {
     long frame = 0;
     int ID = 0;
 
-    // 1) count within r1
-    int n_within_r1 = 0;
-
-    // 2) mean distance within r2 (only if n>0)
-    int n_within_r2 = 0;
-    double mean_dist_r2 = 0.0;
-
-    // 3) proximity intensity score within r3
-    double prox_intensity_r3 = 0.0;
-
-    // 5) personal space weighted proximity (within r5_out)
-    double personal_space_r5 = 0.0;
+    double density_r = 0.0;
+    double front_density = 0.0;
+    double back_density = 0.0;
+    double front_minus_back = 0.0;
 };
 
 struct GlobalTimePoint {
@@ -144,13 +142,14 @@ struct PairWithin {
 struct HourlyIndAccum {
     long n_frames = 0;
 
-    double sum_trait1 = 0.0;
+    double sum_speed = 0.0;
+    long n_speed_valid = 0;
+    long n_moving = 0;
 
-    double sum_trait2 = 0.0;
-    long n_trait2_valid = 0;
-
-    double sum_trait3 = 0.0;
-    double sum_trait5 = 0.0;
+    double sum_density_r = 0.0;
+    double sum_front_density = 0.0;
+    double sum_back_density = 0.0;
+    double sum_front_minus_back = 0.0;
 
     VideoTime start_ts{};
     VideoTime end_ts{};
@@ -184,7 +183,11 @@ int motion_dynamics_run(const std::string& input,
 int get_tracks(const std::filesystem::path& input,
     const std::filesystem::path& output_dir,
     long frame_window,
-    long min_len);
+    long min_len,
+    double noise_dist = 0.0,
+    double max_speed = 0.0,
+    int local_window = 2,
+    double local_dist = 0.0);
 
 void calculate_phenotype(const std::filesystem::path& track_summary_csv, 
     const std::filesystem::path& out_csv);

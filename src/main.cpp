@@ -149,6 +149,10 @@ int main(int argc, char* argv[])
     std::filesystem::path output_dir;
     long frame_window = 200;
     long min_len = 0;
+    double noise_dist = 0.0;
+    double max_speed = 0.0;
+    int local_window = 2;
+    double local_dist = 0.0;
     bool track_mode = false;
     bool cal_pheno_mode = false;
 
@@ -197,6 +201,58 @@ int main(int argc, char* argv[])
                 return 1;
             }
         }
+        else if (arg == "--noise_dist" && i + 1 < argc) {
+            try {
+                noise_dist = std::stod(argv[++i]);
+            }
+            catch (const std::exception&) {
+                std::cerr << "Error: --noise_dist must be a number.\n";
+                return 1;
+            }
+            if (noise_dist < 0.0) {
+                std::cerr << "Error: --noise_dist must be >= 0.\n";
+                return 1;
+            }
+        }
+        else if (arg == "--max_speed" && i + 1 < argc) {
+            try {
+                max_speed = std::stod(argv[++i]);
+            }
+            catch (const std::exception&) {
+                std::cerr << "Error: --max_speed must be a number.\n";
+                return 1;
+            }
+            if (max_speed < 0.0) {
+                std::cerr << "Error: --max_speed must be >= 0.\n";
+                return 1;
+            }
+        }
+        else if (arg == "--local_window" && i + 1 < argc) {
+            try {
+                local_window = std::stoi(argv[++i]);
+            }
+            catch (const std::exception&) {
+                std::cerr << "Error: --local_window must be an integer.\n";
+                return 1;
+            }
+            if (local_window < 1) {
+                std::cerr << "Error: --local_window must be >= 1.\n";
+                return 1;
+            }
+        }
+        else if (arg == "--local_dist" && i + 1 < argc) {
+            try {
+                local_dist = std::stod(argv[++i]);
+            }
+            catch (const std::exception&) {
+                std::cerr << "Error: --local_dist must be a number.\n";
+                return 1;
+            }
+            if (local_dist < 0.0) {
+                std::cerr << "Error: --local_dist must be >= 0.\n";
+                return 1;
+            }
+        }
         else {
             std::cerr << "Error: unknown or incomplete argument: " << arg << "\n";
             std::cerr << "Use --help for usage.\n";
@@ -239,7 +295,8 @@ int main(int argc, char* argv[])
             }
         }
 
-        int n_tracks = get_tracks(input_file, output_dir, frame_window, min_len);
+        int n_tracks = get_tracks(input_file, output_dir, frame_window, min_len,
+            noise_dist, max_speed, local_window, local_dist);
     }
 
     else if (cal_pheno_mode)

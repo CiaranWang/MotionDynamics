@@ -19,23 +19,22 @@ namespace fs = std::filesystem;
 double scale_factor = 1.0;
 double scale_factor_inv = 1.0;
 
-double fps = 20.0;
+double fps = 30.0;
 
-double r1 = 25.0;
-double r2 = 25.0;
-double r3 = 25.0;
-double e3 = 1.0;
-double r4 = 25.0;
-double r5in = 20.0;
-double r5out = 50.0;
+double moving_speed_threshold = 5.0;
 
-double r1_pix = 0.0;
-double r2_pix = 0.0;
-double r3_pix = 0.0;
-double e3_pix = 0.0;
-double r4_pix = 0.0;
-double r5in_pix = 0.0;
-double r5out_pix = 0.0;
+double density_sigma = 50.0;
+double density_r = 100.0;
+double density_sector_r = 100.0;
+double density_sector_theta_deg = 30.0;
+
+double density_grid_step = 5.0;
+double density_min_x = 0.0;
+double density_max_x = 0.0;
+double density_min_y = 0.0;
+double density_max_y = 0.0;
+
+int density_exclude_self = 1;
 
 static std::string trim(const std::string& s)
 {
@@ -90,20 +89,14 @@ static int parse_third_column_id(const std::string& line)
     return std::stoi(id_str);
 }
 
-static int parse_second_column_id(const std::string& line)
+static int parse_id_from_column(const std::string& line, size_t id_col)
 {
-    // We want the 2nd column: custom_frame, id, ...
-    // Find 1st, 2nd, 3rd commas; ID is between 2nd and 3rd.
-    size_t c1 = line.find(',');
-    if (c1 == std::string::npos) throw std::runtime_error("Malformed line (no comma #1).");
+    auto cols = splitCSV(line);
+    if (id_col >= cols.size()) {
+        throw std::runtime_error("Malformed line (missing id column).");
+    }
 
-    size_t c2 = line.find(',', c1 + 1);
-    if (c2 == std::string::npos) throw std::runtime_error("Malformed line (no comma #2).");
-
-    // Extract ID substring
-    const std::string id_str = line.substr(c1 + 1, c2 - (c1 + 1));
-    // stoi tolerates leading/trailing spaces, but we expect clean CSV
-    return std::stoi(id_str);
+    return std::stoi(trim(cols[id_col]));
 }
 
 static bool parse_int(const std::string& s, int& v) {
@@ -167,6 +160,18 @@ void split_input_by_id(const fs::path input_file, const fs::path output_dir)
     if (!std::getline(in, header))
         throw std::runtime_error("Input file is empty: " + input_file.string());
     const std::string header_line = header + "\n";
+
+    auto header_cols = splitCSV(header);
+    size_t id_col = header_cols.size();
+    for (size_t i = 0; i < header_cols.size(); ++i) {
+        if (trim(header_cols[i]) == "id") {
+            id_col = i;
+            break;
+        }
+    }
+    if (id_col == header_cols.size()) {
+        throw std::runtime_error("Missing required column: id");
+    }
 
     // LRU cache for output streams (avoid too many open files)
     constexpr size_t MAX_OPEN_FILES = 64;
@@ -258,7 +263,7 @@ void split_input_by_id(const fs::path input_file, const fs::path output_dir)
 
         int id = 0;
         try {
-            id = parse_second_column_id(line);
+            id = parse_id_from_column(line, id_col);
         }
         catch (const std::exception& e) {
             std::cerr << "Warning: skipping malformed line " << line_no << ": " << e.what() << "\n";
@@ -319,10 +324,6 @@ std::vector<Detection> ReadInput1(const fs::path& input_file)
         col_idx[trim(header[i])] = i;
     }
 
-    auto has_col = [&](const std::string& name) -> bool {
-        return col_idx.find(name) != col_idx.end();
-    };
-
     auto get_col = [&](const std::string& name) -> size_t {
         auto it = col_idx.find(name);
         if (it == col_idx.end()) {
@@ -331,13 +332,27 @@ std::vector<Detection> ReadInput1(const fs::path& input_file)
         return it->second;
     };
 
-    // Required columns in the merged fit output
+    auto get_col_any = [&](const std::vector<std::string>& names) -> size_t {
+        for (const auto& name : names) {
+            auto it = col_idx.find(name);
+            if (it != col_idx.end()) return it->second;
+        }
+
+        std::ostringstream oss;
+        oss << "Missing required column. Tried: ";
+        for (size_t i = 0; i < names.size(); ++i) {
+            if (i) oss << ", ";
+            oss << names[i];
+        }
+        throw std::runtime_error(oss.str());
+        };
+
     const size_t idx_id = get_col("id");
     const size_t idx_custom_frame = get_col("custom_frame");
-    const size_t idx_center_x = get_col("center_x");
-    const size_t idx_center_y = get_col("center_y");
-    const size_t idx_dir_x = get_col("dir_x");
-    const size_t idx_dir_y = get_col("dir_y");
+    const size_t idx_center_x = get_col_any({ "global_center_x", "center_x" });
+    const size_t idx_center_y = get_col_any({ "global_center_y", "center_y" });
+    const size_t idx_dir_x = get_col_any({ "global_dir_x", "dir_x" });
+    const size_t idx_dir_y = get_col_any({ "global_dir_y", "dir_y" });
 
     // Optional columns
     //const bool has_scale_l = has_col("scale_l");
@@ -511,22 +526,16 @@ bool load_parameters(const std::string& filename)
                 if (key == "scale_factor") scale_factor = dval;
                 else if (key == "fps") fps = dval;
             }
-            else if (section == "trait1") {
-                if (key == "r") r1 = dval;
+            else if (section == "movement") {
+                if (key == "speed_threshold") moving_speed_threshold = dval;
             }
-            else if (section == "trait2") {
-                if (key == "r") r2 = dval;
-            }
-            else if (section == "trait3") {
-                if (key == "r") r3 = dval;
-                else if (key == "e") e3 = dval;
-            }
-            else if (section == "trait4") {
-                if (key == "r") r4 = dval;
-            }
-            else if (section == "trait5") {
-                if (key == "r_in") r5in = dval; 
-                else if (key == "r_out") r5out = dval;
+            else if (section == "density") {
+                if (key == "sigma") density_sigma = dval;
+                else if (key == "r") density_r = dval;
+                else if (key == "sector_r") density_sector_r = dval;
+                else if (key == "sector_theta_deg") density_sector_theta_deg = dval;
+                else if (key == "grid_step") density_grid_step = dval;
+                else if (key == "exclude_self") density_exclude_self = ival;
             }
         }
     }
@@ -542,24 +551,19 @@ void print_parameters()
     std::cout << "===== Loaded Parameters =====\n";
 
     std::cout << "[geometry]\n";
+    std::cout << "fps               = " << fps << "\n";
     std::cout << "scale_factor      = " << scale_factor << "\n\n";
 
-    std::cout << "[trait1]\n";
-    std::cout << "r = " << r1 << "\n\n";
+    std::cout << "[movement]\n";
+    std::cout << "speed_threshold   = " << moving_speed_threshold << "\n\n";
 
-    std::cout << "[trait2]\n";
-    std::cout << "r = " << r2 << "\n\n";
-
-    std::cout << "[trait3]\n";
-    std::cout << "r = " << r3 << "\n";
-    std::cout << "e = " << e3 << "\n\n";
-
-    std::cout << "[trait4]\n";
-    std::cout << "r = " << r4 << "\n\n";
-
-    std::cout << "[trait5]\n";
-    std::cout << "r_in  = " << r5in << "\n";
-    std::cout << "r_out = " << r5out << "\n";
+    std::cout << "[density]\n";
+    std::cout << "sigma             = " << density_sigma << "\n";
+    std::cout << "r                 = " << density_r << "\n";
+    std::cout << "sector_r          = " << density_sector_r << "\n";
+    std::cout << "sector_theta_deg  = " << density_sector_theta_deg << "\n";
+    std::cout << "grid_step         = " << density_grid_step << "\n";
+    std::cout << "exclude_self      = " << density_exclude_self << "\n";
 
     std::cout << "=============================\n\n";
 
