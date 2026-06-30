@@ -144,6 +144,7 @@ struct HourlyIndAccum {
 
     double sum_speed = 0.0;
     long n_speed_valid = 0;
+    long n_speed_total = 0;
     long n_moving = 0;
 
     double sum_density_r = 0.0;

@@ -770,21 +770,27 @@ static void write_hourly_individual(
             : std::numeric_limits<double>::quiet_NaN();
 
         const double moving_prop =
-            acc.n_speed_valid > 0
-            ? static_cast<double>(acc.n_moving) / static_cast<double>(acc.n_speed_valid)
+            acc.n_speed_total > 0
+            ? static_cast<double>(acc.n_moving) / static_cast<double>(acc.n_speed_total)
             : std::numeric_limits<double>::quiet_NaN();
 
         const double mean_density_r =
             acc.sum_density_r / static_cast<double>(acc.n_frames);
 
         const double mean_front_density =
-            acc.sum_front_density / static_cast<double>(acc.n_frames);
+            acc.n_moving > 0
+            ? acc.sum_front_density / static_cast<double>(acc.n_moving)
+            : std::numeric_limits<double>::quiet_NaN();
 
         const double mean_back_density =
-            acc.sum_back_density / static_cast<double>(acc.n_frames);
+            acc.n_moving > 0
+            ? acc.sum_back_density / static_cast<double>(acc.n_moving)
+            : std::numeric_limits<double>::quiet_NaN();
 
         const double mean_front_minus_back =
-            acc.sum_front_minus_back / static_cast<double>(acc.n_frames);
+            acc.n_moving > 0
+            ? acc.sum_front_minus_back / static_cast<double>(acc.n_moving)
+            : std::numeric_limits<double>::quiet_NaN();
 
         fout_ind
             << pen << ","
@@ -1562,11 +1568,15 @@ void calculate_phenotype(const fs::path& track_summary_csv, const fs::path& out_
                     const double speed =
                         d * fps / static_cast<double>(gap);
 
-                    acc.sum_speed += speed;
-                    acc.n_speed_valid++;
+                    acc.n_speed_total++;
 
                     if (speed > moving_speed_threshold) {
+                        acc.sum_speed += speed;
+                        acc.n_speed_valid++;
                         acc.n_moving++;
+                        acc.sum_front_density += tr.front_density;
+                        acc.sum_back_density += tr.back_density;
+                        acc.sum_front_minus_back += tr.front_minus_back;
                     }
                 }
             }
@@ -1577,9 +1587,6 @@ void calculate_phenotype(const fs::path& track_summary_csv, const fs::path& out_
             has_prev_pos[s] = true;
 
             acc.sum_density_r += tr.density_r;
-            acc.sum_front_density += tr.front_density;
-            acc.sum_back_density += tr.back_density;
-            acc.sum_front_minus_back += tr.front_minus_back;
 
             if (!acc.has_time) {
                 acc.start_ts = fo.ts;
