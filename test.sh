@@ -10,8 +10,8 @@
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=zhuoshi.wang@wur.nl
 
-cd ~/md_test_to/MotionDynamics_4TO/
+cd ~/md_test_to/MotionDynamics/
 mkdir -p test1
 cd ./test1
 
-~/md_test_to/MotionDynamics_4TO/build/MotionDynamics_4TO -i ~/motion_dynamics_test/coord_paper4.csv -o results1_ --frame_window 200 [--smooth]
+~/md_test_to/MotionDynamics/build/MotionDynamics -i ~/motion_dynamics_test/coord_paper4.csv -o results1_ --frame_window 200 [--smooth]

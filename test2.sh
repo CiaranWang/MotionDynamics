@@ -12,5 +12,5 @@
 
 cd ~/motion_dynamics_test/
 
-##~/MotionDynamics_4TO/build/MotionDynamics_4TO --track -i ~/motion_dynamics_test/coord_paper4.csv -o ./test1 --min_len 1200
-~/MotionDynamics_4TO/build/MotionDynamics_4TO --cal_pheno -i ./test1/coord_paper4_track_summary.csv -p ../MotionDynamics_4TO/parameters.ini -o ./test1/coord_paper4_traits.csv 
+##~/MotionDynamics/build/MotionDynamics --track -i ~/motion_dynamics_test/coord_paper4.csv -o ./test1 --min_len 1200
+~/MotionDynamics/build/MotionDynamics --cal_pheno -i ./test1/coord_paper4_track_summary.csv -p ../MotionDynamics/parameters.ini -o ./test1/coord_paper4_traits.csv

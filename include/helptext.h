@@ -1,7 +1,7 @@
 #pragma once
 
-static const char* HELP_TEXT = R"(Usage: ./MotionDynamic_4TO OPTIONS (Linux)
-	Or MotionDynamic_4TO.exe OPTIONS (Windows)
+static const char* HELP_TEXT = R"(Usage: ./MotionDynamics OPTIONS (Linux)
+	Or MotionDynamics.exe OPTIONS (Windows)
 
 Segement tracks from ArUco signals.
 
@@ -30,14 +30,14 @@ Options:
   -p /PATH/TO/PARAMETER_FILE.ini
 
 Linux Example:
-  ./MotionDynamics_4TO --track -i 20231219_fitted_merge.csv
-  ./MotionDynamics_4TO --track -i 20231219_fitted_merge.csv -o ./exp1 --window 250  --min_len 1000 --noise_dist 50 --max_speed 20 --local_dist 50
-  ./MotionDynamics_4TO --cal_pheno -i 20231219_fitted_merge_track_summary.csv -p parameters.ini -o 20231219_fitted_merge_traits.csv
+  ./MotionDynamics --track -i 20231219_fitted_merge.csv
+  ./MotionDynamics --track -i 20231219_fitted_merge.csv -o ./exp1 --window 250  --min_len 1000 --noise_dist 50 --max_speed 20 --local_dist 50
+  ./MotionDynamics --cal_pheno -i 20231219_fitted_merge_track_summary.csv -p parameters.ini -o 20231219_fitted_merge_traits.csv
  
 Windows Example:
-  MotionDynamics_4TO.exe --track -i 20231219_fitted_merge.csv
-  MotionDynamics_4TO.exe --track -i 20231219_fitted_merge.csv -o ./exp1 --window 250  --min_len 1000 --noise_dist 50 --max_speed 20 --local_dist 50
-  MotionDynamics_4TO.exe --cal_pheno -i 20231219_fitted_merge_track_summary.csv -p parameters.ini -o 20231219_fitted_merge_traits.csv
+  MotionDynamics.exe --track -i 20231219_fitted_merge.csv
+  MotionDynamics.exe --track -i 20231219_fitted_merge.csv -o ./exp1 --window 250  --min_len 1000 --noise_dist 50 --max_speed 20 --local_dist 50
+  MotionDynamics.exe --cal_pheno -i 20231219_fitted_merge_track_summary.csv -p parameters.ini -o 20231219_fitted_merge_traits.csv
 
 Report bugs to: zhuoshi.wang@wur.nl
 )";

@@ -19,7 +19,7 @@
 namespace fs = std::filesystem;
 using namespace std;
 
-static const std::string PROGRAM_VERSION = "3.0.0";
+static const std::string PROGRAM_VERSION = "3.0.1";
 
 static void print_version() {
     std::cout << "MotionDynamics Version: " << PROGRAM_VERSION << std::endl;
@@ -48,8 +48,8 @@ static void run_update(char* argv0)
     fs::path exe_path = fs::path(buf);
     fs::path exe_dir = exe_path.parent_path();
 
-    fs::path new_exe = exe_dir / "MotionDynamics_4TO_new.exe";
-    fs::path updater = exe_dir / "MotionDynamics_4TO_updater.exe";
+    fs::path new_exe = exe_dir / "MotionDynamics_new.exe";
+    fs::path updater = exe_dir / "MotionDynamics_updater.exe";
 
     if (!fs::exists(updater)) {
         std::cout << "[UPDATE] Missing updater: " << updater << "\n";
@@ -59,7 +59,7 @@ static void run_update(char* argv0)
     std::cout << "[UPDATE] Downloading new version...\n";
 
     const std::string url =
-        "https://github.com/CiaranWang/MotionDynamics_4TO/releases/latest/download/MotionDynamics_4TO.exe";
+        "https://github.com/CiaranWang/MotionDynamics/releases/latest/download/MotionDynamics.exe";
 
     std::string cmd =
         "where curl >nul 2>nul"
@@ -91,14 +91,14 @@ static void run_update(char* argv0)
 #else
     fs::path md_root = get_root(argv0);
 
-    std::cout << "[UPDATE] Attempting to update MotionDynamics_4TO in: " << md_root << std::endl;
+    std::cout << "[UPDATE] Attempting to update MotionDynamics in: " << md_root << std::endl;
     std::cout << "Make sure you have 'git', 'cmake', and 'make' installed." << std::endl;
 
     // Check if .git folder exists
     if (!fs::exists(md_root / ".git") || !fs::is_directory(md_root / ".git")) {
-        std::cout << "Warning: LIS root folder is not a git repository.\n";
+        std::cout << "Warning: MotionDynamics root folder is not a git repository.\n";
         std::cout << "Clone the repository and try again:\n";
-        std::cout << "  git clone https://github.com/CiaranWang/MotionDynamics_4TO.git\n";
+        std::cout << "  git clone https://github.com/CiaranWang/MotionDynamics.git\n";
         return;
     }
 
@@ -118,7 +118,7 @@ static void run_update(char* argv0)
     }
 
     std::cout << "Update and rebuild completed successfully!\n";
-    std::cout << "You can now run: ./build/MotionDynamics_4TO [options]\n";
+    std::cout << "You can now run: ./build/MotionDynamics [options]\n";
 #endif
 }
 
