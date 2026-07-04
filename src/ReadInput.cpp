@@ -22,6 +22,7 @@ double scale_factor_inv = 1.0;
 double fps = 30.0;
 
 double moving_speed_threshold = 5.0;
+int phenotype_smooth_window = 2;
 
 double density_sigma = 50.0;
 double density_r = 100.0;
@@ -528,6 +529,7 @@ bool load_parameters(const std::string& filename)
             }
             else if (section == "movement") {
                 if (key == "speed_threshold") moving_speed_threshold = dval;
+                else if (key == "phenotype_smooth_window") phenotype_smooth_window = ival;
             }
             else if (section == "density") {
                 if (key == "sigma") density_sigma = dval;
@@ -555,7 +557,8 @@ void print_parameters()
     std::cout << "scale_factor      = " << scale_factor << "\n\n";
 
     std::cout << "[movement]\n";
-    std::cout << "speed_threshold   = " << moving_speed_threshold << "\n\n";
+    std::cout << "speed_threshold          = " << moving_speed_threshold << "\n";
+    std::cout << "phenotype_smooth_window  = " << phenotype_smooth_window << "\n\n";
 
     std::cout << "[density]\n";
     std::cout << "sigma             = " << density_sigma << "\n";

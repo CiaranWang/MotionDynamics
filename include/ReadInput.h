@@ -13,6 +13,7 @@ extern double scale_factor_inv;
 extern double fps;
 
 extern double moving_speed_threshold;
+extern int phenotype_smooth_window;
 
 extern double density_sigma;
 extern double density_r;

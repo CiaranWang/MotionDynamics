@@ -195,13 +195,12 @@ static std::vector<Detection> filter_single_point_noise(
         return detections;
     }
 
-    std::vector<Detection> cleaned = detections;
+    std::vector<char> remove(detections.size(), 0);
 
-    size_t i = 1;
-    while (i + 1 < cleaned.size()) {
-        const Detection& prev = cleaned[i - 1];
-        const Detection& cur = cleaned[i];
-        const Detection& next = cleaned[i + 1];
+    for (size_t i = 1; i + 1 < detections.size(); ++i) {
+        const Detection& prev = detections[i - 1];
+        const Detection& cur = detections[i];
+        const Detection& next = detections[i + 1];
 
         const long gap_prev_cur = cur.custom_frame - prev.custom_frame;
         const long gap_cur_next = next.custom_frame - cur.custom_frame;
@@ -223,14 +222,17 @@ static std::vector<Detection> filter_single_point_noise(
                 d_cur_next > noise_dist;
 
             if (single_point_spike) {
-                cleaned.erase(cleaned.begin() + static_cast<std::ptrdiff_t>(i));
+                remove[i] = 1;
                 ++removed_count;
-                if (i > 1) --i;
-                continue;
             }
         }
+    }
 
-        ++i;
+    std::vector<Detection> cleaned;
+    cleaned.reserve(detections.size() - static_cast<size_t>(removed_count));
+
+    for (size_t i = 0; i < detections.size(); ++i) {
+        if (!remove[i]) cleaned.push_back(detections[i]);
     }
 
     return cleaned;
@@ -248,13 +250,12 @@ static std::vector<Detection> filter_speed_noise(
         return detections;
     }
 
-    std::vector<Detection> cleaned = detections;
+    std::vector<char> remove(detections.size(), 0);
 
-    size_t i = 1;
-    while (i + 1 < cleaned.size()) {
-        const Detection& prev = cleaned[i - 1];
-        const Detection& cur = cleaned[i];
-        const Detection& next = cleaned[i + 1];
+    for (size_t i = 1; i + 1 < detections.size(); ++i) {
+        const Detection& prev = detections[i - 1];
+        const Detection& cur = detections[i];
+        const Detection& next = detections[i + 1];
 
         const long gap_prev_cur = cur.custom_frame - prev.custom_frame;
         const long gap_cur_next = next.custom_frame - cur.custom_frame;
@@ -284,14 +285,17 @@ static std::vector<Detection> filter_speed_noise(
                 speed_prev_next <= max_speed;
 
             if (impossible_speed_spike) {
-                cleaned.erase(cleaned.begin() + static_cast<std::ptrdiff_t>(i));
+                remove[i] = 1;
                 ++removed_count;
-                if (i > 1) --i;
-                continue;
             }
         }
+    }
 
-        ++i;
+    std::vector<Detection> cleaned;
+    cleaned.reserve(detections.size() - static_cast<size_t>(removed_count));
+
+    for (size_t i = 0; i < detections.size(); ++i) {
+        if (!remove[i]) cleaned.push_back(detections[i]);
     }
 
     return cleaned;
@@ -311,10 +315,10 @@ static std::vector<Detection> filter_local_trend_noise(
     }
 
     std::vector<Detection> cleaned = detections;
-    bool changed = true;
 
-    while (changed) {
-        changed = false;
+    for (;;) {
+        std::vector<char> remove(cleaned.size(), 0);
+        int removed_this_pass = 0;
 
         for (size_t i = 1; i + 1 < cleaned.size(); ++i) {
             const Detection& cur = cleaned[i];
@@ -360,12 +364,22 @@ static std::vector<Detection> filter_local_trend_noise(
             const double deviation = euclid(cur.cen_x, cur.cen_y, expected_x, expected_y);
 
             if (deviation > local_dist) {
-                cleaned.erase(cleaned.begin() + static_cast<std::ptrdiff_t>(i));
-                ++removed_count;
-                changed = true;
-                break;
+                remove[i] = 1;
+                ++removed_this_pass;
             }
         }
+
+        if (removed_this_pass == 0) break;
+
+        std::vector<Detection> next;
+        next.reserve(cleaned.size() - static_cast<size_t>(removed_this_pass));
+
+        for (size_t i = 0; i < cleaned.size(); ++i) {
+            if (!remove[i]) next.push_back(cleaned[i]);
+        }
+
+        removed_count += removed_this_pass;
+        cleaned.swap(next);
     }
 
     return cleaned;
@@ -556,9 +570,33 @@ int get_tracks(const fs::path& input,
     }
 
     // ------------------------------------------------------------
-    // 1) Split input by ID
+    // 1) Read input once and group detections by ID
     // ------------------------------------------------------------
-    split_input_by_id(input, output_dir);
+    std::vector<Detection> all_detections = ReadInput1(input);
+    if (all_detections.empty()) {
+        std::cerr << "No detections loaded from " << input << "\n";
+        return 0;
+    }
+
+    std::unordered_map<int, std::vector<Detection>> detections_by_id;
+    detections_by_id.reserve(128);
+
+    for (auto& d : all_detections) {
+        detections_by_id[d.ID].push_back(std::move(d));
+    }
+
+    all_detections.clear();
+    all_detections.shrink_to_fit();
+
+    std::vector<int> ids;
+    ids.reserve(detections_by_id.size());
+    for (const auto& kv : detections_by_id) {
+        ids.push_back(kv.first);
+    }
+    std::sort(ids.begin(), ids.end());
+
+    std::cout << "[INFO] Loaded detections for "
+        << ids.size() << " IDs\n";
 
     // ------------------------------------------------------------
     // 2) Create fresh summary file
@@ -567,41 +605,20 @@ int get_tracks(const fs::path& input,
     ensure_summary_header_if_needed(global_summary_csv);
 
     // ------------------------------------------------------------
-    // 3) Process only split ID files
+    // 3) Process each ID in memory
     // ------------------------------------------------------------
-    std::error_code ec;
-
-    for (const auto& entry : fs::directory_iterator(output_dir, ec))
+    for (int ID : ids)
     {
-        if (ec) {
-            std::cerr << "!!! directory_iterator error: " << ec.message() << "\n";
-            break;
-        }
+        auto det_it = detections_by_id.find(ID);
+        if (det_it == detections_by_id.end()) continue;
 
-        if (!entry.is_regular_file()) continue;
+        std::vector<Detection> detections = std::move(det_it->second);
+        detections_by_id.erase(det_it);
 
-        const fs::path file = entry.path();
-        if (file.extension() != ".csv") continue;
-
-        const std::string stem = file.stem().string();
-
-        // Only process files like:
-        // inputstem_ID34.csv
-        //
-        // Do NOT process:
-        // input original file
-        // inputstem_track_summary.csv
-        // inputstem_ID34_tracks.csv
-        const bool is_split_id_file =
-            stem.rfind(input_stem + "_ID", 0) == 0 &&
-            !ends_with(stem, "_tracks");
-
-        if (!is_split_id_file) continue;
-
-        std::cout << "Processing CSV: " << file << "\n";
-
-        std::vector<Detection> detections = ReadInput1(file);
         if (detections.empty()) continue;
+
+        std::cout << "Processing ID " << ID
+            << " (" << detections.size() << " detections)\n";
 
         std::sort(detections.begin(), detections.end(),
             [](const Detection& a, const Detection& b) {
@@ -644,37 +661,26 @@ int get_tracks(const fs::path& input,
 
         auto tracks = build_tracks_per_id(detections, frame_window, min_len);
         if (tracks.empty()) {
-            // delete split file even if no valid tracks
-            std::error_code del_ec;
-            fs::remove(file, del_ec);
             continue;
         }
 
         number_tracks += static_cast<int>(tracks.size());
 
+        const fs::path synthetic_id_file =
+            output_dir / (input_stem + "_ID" + std::to_string(ID) + ".csv");
+
         const fs::path per_id_tracks_csv =
-            output_dir / (file.stem().string() + "_tracks.csv");
+            output_dir / (synthetic_id_file.stem().string() + "_tracks.csv");
 
         if (!write_tracks_and_append_summary(
-            file, tracks, per_id_tracks_csv, global_summary_csv
+            synthetic_id_file, tracks, per_id_tracks_csv, global_summary_csv
         )) {
-            std::cerr << "!!! Failed writing outputs for: " << file << "\n";
+            std::cerr << "!!! Failed writing outputs for ID: " << ID << "\n";
         }
         else {
             std::cout << "  -> wrote " << per_id_tracks_csv.filename()
                 << " and appended to " << global_summary_csv.filename()
                 << " (" << tracks.size() << " tracks)\n";
-
-            // DELETE processed split-ID file
-            std::error_code del_ec;
-            if (fs::remove(file, del_ec)) {
-                std::cout << "  -> deleted split source file: "
-                    << file.filename() << "\n";
-            }
-            else if (del_ec) {
-                std::cerr << "!!! Failed to delete " << file
-                    << " : " << del_ec.message() << "\n";
-            }
         }
     }
 
@@ -698,6 +704,189 @@ static void interpolate_xy(long frame, const DetRow& a, const DetRow& b, double&
     const double w = (t - t0) / (t1 - t0);
     x = a.x + w * (b.x - a.x);
     y = a.y + w * (b.y - a.y);
+}
+
+static bool solve_quadratic_normal_equation(
+    double s0,
+    double s1,
+    double s2,
+    double s3,
+    double s4,
+    double v0,
+    double v1,
+    double v2,
+    double& c0,
+    double& c1,
+    double& c2)
+{
+    double a[3][4] = {
+        { s0, s1, s2, v0 },
+        { s1, s2, s3, v1 },
+        { s2, s3, s4, v2 }
+    };
+
+    for (int col = 0; col < 3; ++col) {
+        int pivot = col;
+        for (int row = col + 1; row < 3; ++row) {
+            if (std::abs(a[row][col]) > std::abs(a[pivot][col])) {
+                pivot = row;
+            }
+        }
+
+        if (std::abs(a[pivot][col]) < 1e-12) return false;
+
+        if (pivot != col) {
+            for (int k = col; k < 4; ++k) {
+                std::swap(a[col][k], a[pivot][k]);
+            }
+        }
+
+        const double denom = a[col][col];
+        for (int k = col; k < 4; ++k) {
+            a[col][k] /= denom;
+        }
+
+        for (int row = 0; row < 3; ++row) {
+            if (row == col) continue;
+
+            const double factor = a[row][col];
+            for (int k = col; k < 4; ++k) {
+                a[row][k] -= factor * a[col][k];
+            }
+        }
+    }
+
+    c0 = a[0][3];
+    c1 = a[1][3];
+    c2 = a[2][3];
+    return true;
+}
+
+static bool quadratic_smooth_xy(
+    long frame,
+    const std::vector<DetRow>& dets,
+    size_t cursor_index,
+    const TrackInterval& interval,
+    double& x,
+    double& y,
+    double& dir_x,
+    double& dir_y)
+{
+    if (phenotype_smooth_window < 1 || dets.size() < 3) return false;
+
+    const int max_points = 2 * phenotype_smooth_window + 1;
+    std::vector<size_t> selected;
+    selected.reserve(static_cast<size_t>(max_points));
+
+    size_t right = cursor_index;
+    while (right < dets.size() && dets[right].frame < frame) {
+        ++right;
+    }
+
+    long left = static_cast<long>(right) - 1;
+
+    while (static_cast<int>(selected.size()) < max_points &&
+        (left >= 0 || right < dets.size())) {
+
+        bool take_left = false;
+
+        if (left < 0) {
+            take_left = false;
+        }
+        else if (right >= dets.size()) {
+            take_left = true;
+        }
+        else {
+            const long left_diff = frame - dets[static_cast<size_t>(left)].frame;
+            const long right_diff = dets[right].frame - frame;
+            const long d_left = left_diff >= 0 ? left_diff : -left_diff;
+            const long d_right = right_diff >= 0 ? right_diff : -right_diff;
+            take_left = d_left <= d_right;
+        }
+
+        size_t idx = 0;
+        if (take_left) {
+            idx = static_cast<size_t>(left);
+            --left;
+        }
+        else {
+            idx = right;
+            ++right;
+        }
+
+        if (dets[idx].frame < interval.first || dets[idx].frame > interval.last) {
+            continue;
+        }
+
+        selected.push_back(idx);
+    }
+
+    if (selected.size() < 3) return false;
+
+    std::sort(selected.begin(), selected.end(),
+        [&](size_t lhs, size_t rhs) {
+            return dets[lhs].frame < dets[rhs].frame;
+        });
+
+    double s0 = 0.0;
+    double s1 = 0.0;
+    double s2 = 0.0;
+    double s3 = 0.0;
+    double s4 = 0.0;
+
+    double x0 = 0.0;
+    double x1 = 0.0;
+    double x2 = 0.0;
+    double y0 = 0.0;
+    double y1 = 0.0;
+    double y2 = 0.0;
+
+    for (size_t idx : selected) {
+        const double u = static_cast<double>(dets[idx].frame - frame);
+        const double u2 = u * u;
+        const double u3 = u2 * u;
+        const double u4 = u2 * u2;
+
+        s0 += 1.0;
+        s1 += u;
+        s2 += u2;
+        s3 += u3;
+        s4 += u4;
+
+        x0 += dets[idx].x;
+        x1 += dets[idx].x * u;
+        x2 += dets[idx].x * u2;
+
+        y0 += dets[idx].y;
+        y1 += dets[idx].y * u;
+        y2 += dets[idx].y * u2;
+    }
+
+    double cx0 = 0.0;
+    double cx1 = 0.0;
+    double cx2 = 0.0;
+    double cy0 = 0.0;
+    double cy1 = 0.0;
+    double cy2 = 0.0;
+
+    if (!solve_quadratic_normal_equation(s0, s1, s2, s3, s4, x0, x1, x2, cx0, cx1, cx2)) {
+        return false;
+    }
+
+    if (!solve_quadratic_normal_equation(s0, s1, s2, s3, s4, y0, y1, y2, cy0, cy1, cy2)) {
+        return false;
+    }
+
+    x = cx0;
+    y = cy0;
+
+    const double dir_norm = std::sqrt(cx1 * cx1 + cy1 * cy1);
+    if (dir_norm > 1e-12) {
+        dir_x = cx1 / dir_norm;
+        dir_y = cy1 / dir_norm;
+    }
+
+    return true;
 }
 
 static std::string time_to_string(const VideoTime& t)
@@ -1299,6 +1488,8 @@ void calculate_phenotype(const fs::path& track_summary_csv, const fs::path& out_
     std::cout << "Min start frame: " << min_start_frame << "\n";
     std::cout << "Max end frame: " << max_end_frame << "\n";
     std::cout << "Using fps: " << fps << "\n";
+    std::cout << "Phenotype quadratic smoothing window: "
+        << phenotype_smooth_window << "\n";
 
     std::cout << "Density parameters:\n";
     std::cout << "  sigma = " << density_sigma << "\n";
@@ -1491,6 +1682,17 @@ void calculate_phenotype(const fs::path& track_summary_csv, const fs::path& out_
                 fo.dir_x = std::cos(a.angle);
                 fo.dir_y = std::sin(a.angle);
             }
+
+            quadratic_smooth_xy(
+                i,
+                dets,
+                k,
+                interval,
+                fo.x,
+                fo.y,
+                fo.dir_x,
+                fo.dir_y
+            );
 
             frame_rows.push_back(fo);
         }
