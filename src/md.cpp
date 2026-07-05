@@ -13,6 +13,7 @@
 #include <sstream>
 #include <limits>
 #include <cstddef>
+#include <deque>
 
 namespace fs = std::filesystem;
 using namespace std;
@@ -625,38 +626,44 @@ int get_tracks(const fs::path& input,
                 return a.custom_frame < b.custom_frame;
             });
 
-        int removed_noise = 0;
-        detections = filter_single_point_noise(
-            detections, frame_window, noise_dist, removed_noise
-        );
+        if (noise_dist > 0.0) {
+            int removed_noise = 0;
+            detections = filter_single_point_noise(
+                detections, frame_window, noise_dist, removed_noise
+            );
 
-        if (removed_noise > 0) {
-            std::cout << "  -> removed " << removed_noise
-                << " single-point noise detections"
-                << " using --noise_dist " << noise_dist << "\n";
+            if (removed_noise > 0) {
+                std::cout << "  -> removed " << removed_noise
+                    << " single-point noise detections"
+                    << " using --noise_dist " << noise_dist << "\n";
+            }
         }
 
-        int removed_speed_noise = 0;
-        detections = filter_speed_noise(
-            detections, frame_window, max_speed, removed_speed_noise
-        );
+        if (max_speed > 0.0) {
+            int removed_speed_noise = 0;
+            detections = filter_speed_noise(
+                detections, frame_window, max_speed, removed_speed_noise
+            );
 
-        if (removed_speed_noise > 0) {
-            std::cout << "  -> removed " << removed_speed_noise
-                << " speed-spike detections"
-                << " using --max_speed " << max_speed << "\n";
+            if (removed_speed_noise > 0) {
+                std::cout << "  -> removed " << removed_speed_noise
+                    << " speed-spike detections"
+                    << " using --max_speed " << max_speed << "\n";
+            }
         }
 
-        int removed_local_noise = 0;
-        detections = filter_local_trend_noise(
-            detections, frame_window, local_window, local_dist, removed_local_noise
-        );
+        if (local_dist > 0.0 && local_window >= 1) {
+            int removed_local_noise = 0;
+            detections = filter_local_trend_noise(
+                detections, frame_window, local_window, local_dist, removed_local_noise
+            );
 
-        if (removed_local_noise > 0) {
-            std::cout << "  -> removed " << removed_local_noise
-                << " local-trend noise detections"
-                << " using --local_window " << local_window
-                << " and --local_dist " << local_dist << "\n";
+            if (removed_local_noise > 0) {
+                std::cout << "  -> removed " << removed_local_noise
+                    << " local-trend noise detections"
+                    << " using --local_window " << local_window
+                    << " and --local_dist " << local_dist << "\n";
+            }
         }
 
         auto tracks = build_tracks_per_id(detections, frame_window, min_len);
@@ -1488,6 +1495,8 @@ void calculate_phenotype(const fs::path& track_summary_csv, const fs::path& out_
     std::cout << "Min start frame: " << min_start_frame << "\n";
     std::cout << "Max end frame: " << max_end_frame << "\n";
     std::cout << "Using fps: " << fps << "\n";
+    std::cout << "Active speed window: "
+        << active_speed_window << " frames\n";
     std::cout << "Phenotype quadratic smoothing window: "
         << phenotype_smooth_window << "\n";
 
@@ -1580,6 +1589,7 @@ void calculate_phenotype(const fs::path& track_summary_csv, const fs::path& out_
     std::vector<double> prev_y(N, 0.0);
     std::vector<long> prev_frame(N, -1);
     std::vector<bool> has_prev_pos(N, false);
+    std::vector<std::deque<FrameObs>> active_speed_history(N);
 
     DensityLookup density_lookup(
         density_sigma,
@@ -1616,11 +1626,21 @@ void calculate_phenotype(const fs::path& track_summary_csv, const fs::path& out_
 
                 auto slot_it = id_to_slot.find(ev.ID);
                 if (slot_it != id_to_slot.end()) {
-                    has_prev_pos[slot_it->second] = false;
-                    prev_frame[slot_it->second] = -1;
+                    const int s = slot_it->second;
+                    has_prev_pos[s] = false;
+                    prev_frame[s] = -1;
+                    active_speed_history[s].clear();
                 }
             }
             else {
+                auto slot_it = id_to_slot.find(ev.ID);
+                if (slot_it != id_to_slot.end()) {
+                    const int s = slot_it->second;
+                    has_prev_pos[s] = false;
+                    prev_frame[s] = -1;
+                    active_speed_history[s].clear();
+                }
+
                 active_track.erase(ev.ID);
                 cursor.erase(ev.ID);
             }
@@ -1756,6 +1776,9 @@ void calculate_phenotype(const fs::path& track_summary_csv, const fs::path& out_
 
             acc.n_frames++;
 
+            bool has_step_speed = false;
+            double step_speed = 0.0;
+
             if (has_prev_pos[s] && prev_frame[s] < fo.frame) {
                 const long gap = fo.frame - prev_frame[s];
 
@@ -1770,16 +1793,57 @@ void calculate_phenotype(const fs::path& track_summary_csv, const fs::path& out_
                     const double speed =
                         d * fps / static_cast<double>(gap);
 
-                    acc.n_speed_total++;
+                    step_speed = speed;
+                    has_step_speed = true;
+                }
+            }
 
-                    if (speed > moving_speed_threshold) {
-                        acc.sum_speed += speed;
-                        acc.n_speed_valid++;
-                        acc.n_moving++;
-                        acc.sum_front_density += tr.front_density;
-                        acc.sum_back_density += tr.back_density;
-                        acc.sum_front_minus_back += tr.front_minus_back;
+            bool has_active_speed = false;
+            double active_speed = 0.0;
+
+            if (has_step_speed && active_speed_window < 1) {
+                active_speed = step_speed;
+                has_active_speed = true;
+            }
+            else {
+                auto& hist = active_speed_history[s];
+
+                while (
+                    hist.size() >= 2 &&
+                    fo.frame - hist[1].frame >= active_speed_window
+                    ) {
+                    hist.pop_front();
+                }
+
+                if (!hist.empty() && hist.front().frame < fo.frame) {
+                    const FrameObs& past = hist.front();
+                    const long active_gap = fo.frame - past.frame;
+
+                    if (active_gap > 0) {
+                        const double active_dist = euclid(
+                            past.x,
+                            past.y,
+                            fo.x,
+                            fo.y
+                        );
+
+                        active_speed =
+                            active_dist * fps / static_cast<double>(active_gap);
+                        has_active_speed = true;
                     }
+                }
+            }
+
+            if (has_step_speed && has_active_speed) {
+                acc.n_speed_total++;
+
+                if (active_speed > moving_speed_threshold) {
+                    acc.sum_speed += step_speed;
+                    acc.n_speed_valid++;
+                    acc.n_moving++;
+                    acc.sum_front_density += tr.front_density;
+                    acc.sum_back_density += tr.back_density;
+                    acc.sum_front_minus_back += tr.front_minus_back;
                 }
             }
 
@@ -1787,6 +1851,7 @@ void calculate_phenotype(const fs::path& track_summary_csv, const fs::path& out_
             prev_y[s] = fo.y;
             prev_frame[s] = fo.frame;
             has_prev_pos[s] = true;
+            active_speed_history[s].push_back(fo);
 
             acc.sum_density_r += tr.density_r;
 

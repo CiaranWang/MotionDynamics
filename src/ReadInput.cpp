@@ -22,6 +22,7 @@ double scale_factor_inv = 1.0;
 double fps = 30.0;
 
 double moving_speed_threshold = 5.0;
+int active_speed_window = 30;
 int phenotype_smooth_window = 2;
 
 double density_sigma = 50.0;
@@ -354,6 +355,7 @@ std::vector<Detection> ReadInput1(const fs::path& input_file)
     const size_t idx_center_y = get_col_any({ "global_center_y", "center_y" });
     const size_t idx_dir_x = get_col_any({ "global_dir_x", "dir_x" });
     const size_t idx_dir_y = get_col_any({ "global_dir_y", "dir_y" });
+    const int parsed_day = parse_day_from_filename(input_file);
 
     // Optional columns
     //const bool has_scale_l = has_col("scale_l");
@@ -381,7 +383,7 @@ std::vector<Detection> ReadInput1(const fs::path& input_file)
             d.dir_y = std::stod(cols[idx_dir_y]);
 
             d.pen = 0;
-            d.day = parse_day_from_filename(input_file);   // 推荐
+            d.day = parsed_day;
             d.timestamp.hour = 0;
             d.timestamp.minute = 0;
             d.timestamp.second = 0;
@@ -529,6 +531,7 @@ bool load_parameters(const std::string& filename)
             }
             else if (section == "movement") {
                 if (key == "speed_threshold") moving_speed_threshold = dval;
+                else if (key == "active_speed_window") active_speed_window = ival;
                 else if (key == "phenotype_smooth_window") phenotype_smooth_window = ival;
             }
             else if (section == "density") {
@@ -558,6 +561,7 @@ void print_parameters()
 
     std::cout << "[movement]\n";
     std::cout << "speed_threshold          = " << moving_speed_threshold << "\n";
+    std::cout << "active_speed_window      = " << active_speed_window << "\n";
     std::cout << "phenotype_smooth_window  = " << phenotype_smooth_window << "\n\n";
 
     std::cout << "[density]\n";
